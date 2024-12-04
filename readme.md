@@ -24,7 +24,7 @@ this must running with root user.
 ## Run with docker
 
 ```bash
-docker run -d --name wsterm -p 8090:8080 ws-shell
+docker run -d --name ghcr.io/v1xingyue/ws-shell:main -p 8090:8080 
 ```
 
 After running, you can access the service through the address: [https://0.0.0.0:8090](https://0.0.0.0:8090)
