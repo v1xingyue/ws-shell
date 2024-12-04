@@ -1,0 +1,5 @@
+wsterm
+.DS_Store
+wsterm-*
+cert.pem
+key.pem
