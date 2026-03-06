@@ -40,7 +40,6 @@ func initAuth() {
 	// 从环境变量读取配置
 	clientID := os.Getenv("GITHUB_CLIENT_ID")
 	clientSecret := os.Getenv("GITHUB_CLIENT_SECRET")
-	allowedIDs := os.Getenv("ALLOWED_USER_IDS")
 
 	if clientID == "" || clientSecret == "" {
 		logrus.Warn("GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET not set, GitHub auth disabled")
@@ -50,11 +49,12 @@ func initAuth() {
 
 	authEnabled = true
 
-	// 解析允许的用户 ID
-	if allowedIDs != "" {
-		allowedUserIDs = strings.Split(allowedIDs, ",")
-		for i, id := range allowedUserIDs {
-			allowedUserIDs[i] = strings.TrimSpace(id)
+	// 解析允许登录的 GitHub 用户 ID 列表（仅支持 ALLOWED_USER_IDS，见文档获取方法）
+	if allowedIDs := os.Getenv("ALLOWED_USER_IDS"); allowedIDs != "" {
+		for _, s := range strings.Split(allowedIDs, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				allowedUserIDs = append(allowedUserIDs, s)
+			}
 		}
 		logrus.Infof("Allowed user IDs: %v", allowedUserIDs)
 	}
@@ -72,31 +72,41 @@ func initAuth() {
 }
 
 func getRedirectURL() string {
-	// 从环境变量获取，或者使用默认值
+	// 仅作 init 时 Config 的默认值，实际请求中用 redirectURLFromRequest 按请求 Host 自动拼
 	redirectURL := os.Getenv("OAUTH_REDIRECT_URL")
-	if redirectURL == "" {
-		// 默认使用当前服务器的地址
-		if enableSSL {
-			redirectURL = fmt.Sprintf("https://%s/auth/github/callback", bindAddress)
-		} else {
-			redirectURL = fmt.Sprintf("http://%s/auth/github/callback", bindAddress)
-		}
+	if redirectURL != "" {
+		return redirectURL
 	}
-	return redirectURL
+	host := bindAddress
+	if strings.HasPrefix(bindAddress, ":") {
+		host = getDefaultIP() + bindAddress
+	}
+	if enableSSL {
+		return fmt.Sprintf("https://%s/auth/github/callback", host)
+	}
+	return fmt.Sprintf("http://%s/auth/github/callback", host)
+}
+
+// redirectURLFromRequest 按当前请求的 Host 和协议自动拼回调地址，无需在 .env 配置 OAUTH_REDIRECT_URL
+func redirectURLFromRequest(c *gin.Context) string {
+	scheme := "http"
+	if c.GetHeader("X-Forwarded-Proto") == "https" || c.Request.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + c.Request.Host + "/auth/github/callback"
 }
 
 // GitHub 认证路由
+// 无论认证是否启用，都注册 /auth/me 和 /auth/logout，以便前端在未配置时能拿到 guest 状态并跳过登录页
 func setupAuthRoutes(r *gin.Engine) {
-	if !authEnabled {
-		return
-	}
-
 	auth := r.Group("/auth")
 	{
-		auth.GET("/github", handleGitHubLogin)
-		auth.GET("/github/callback", handleGitHubCallback)
-		auth.GET("/logout", handleLogout)
 		auth.GET("/me", handleMe)
+		auth.GET("/logout", handleLogout)
+		if authEnabled {
+			auth.GET("/github", handleGitHubLogin)
+			auth.GET("/github/callback", handleGitHubCallback)
+		}
 	}
 }
 
@@ -109,9 +119,10 @@ func handleGitHubLogin(c *gin.Context) {
 		return
 	}
 
-	// 生成状态字符串（在生产环境中应该使用更安全的方式）
+	// 按请求 Host 自动拼回调地址，与 GitHub 里填的 Authorization callback URL 一致即可
+	redirectURL := redirectURLFromRequest(c)
 	state := oauthStateString
-	url := githubOAuthConfig.AuthCodeURL(state)
+	url := githubOAuthConfig.AuthCodeURL(state, oauth2.SetAuthURLParam("redirect_uri", redirectURL))
 	c.Redirect(http.StatusFound, url)
 }
 
@@ -143,8 +154,11 @@ func handleGitHubCallback(c *gin.Context) {
 		return
 	}
 
-	// 交换授权码获取访问令牌
-	token, err := githubOAuthConfig.Exchange(context.Background(), code)
+	// 交换授权码获取访问令牌（用与跳转时一致的回调地址）
+	redirectURL := redirectURLFromRequest(c)
+	config := *githubOAuthConfig
+	config.RedirectURL = redirectURL
+	token, err := config.Exchange(context.Background(), code)
 	if err != nil {
 		logrus.Errorf("Failed to exchange token: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -196,20 +210,17 @@ func handleGitHubCallback(c *gin.Context) {
 	c.Redirect(http.StatusFound, "/web")
 }
 
-// 检查用户是否在允许列表中
+// 检查用户是否在允许列表中（仅按 GitHub 用户 ID）
 func isUserAllowed(user GitHubUser) bool {
-	// 如果没有配置允许列表，允许所有用户
 	if len(allowedUserIDs) == 0 {
 		return true
 	}
-
 	userIDStr := fmt.Sprintf("%d", user.ID)
-	for _, allowedID := range allowedUserIDs {
-		if allowedID == userIDStr {
+	for _, id := range allowedUserIDs {
+		if id == userIDStr {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -278,11 +289,11 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 检查用户是否在允许列表中
+		// 检查用户是否在允许列表中（仅 ALLOWED_USER_IDS）
 		if len(allowedUserIDs) > 0 {
 			allowed := false
-			for _, allowedID := range allowedUserIDs {
-				if allowedID == userID {
+			for _, id := range allowedUserIDs {
+				if id == userID {
 					allowed = true
 					break
 				}

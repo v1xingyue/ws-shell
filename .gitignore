@@ -1,4 +1,5 @@
 wsterm
+ws-shell
 .DS_Store
 wsterm-*
 cert.pem

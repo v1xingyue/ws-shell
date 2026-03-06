@@ -15,7 +15,8 @@ RUN make bin
 RUN make red-pill-shell
 
 FROM alpine:3.23
-COPY --from=builder /wsterm/wsterm-amd64 /app/bin/wsterm
+ARG TARGETARCH
+COPY --from=builder /wsterm/wsterm-${TARGETARCH} /app/bin/wsterm
 WORKDIR /app
 ENV ENABLE_SSL=true
 CMD ["/app/bin/wsterm","-bind",":8080","-fork","/bin/sh"]
