@@ -3,7 +3,7 @@ COPY ./web /web
 WORKDIR /web
 RUN npm install && npm run build
 
-FROM golang:1.22.5-alpine3.20 as builder
+FROM golang:1.24.13-alpine3.23 as builder
 RUN apk update
 RUN apk add --no-cache git make
 COPY . /wsterm
@@ -14,7 +14,7 @@ RUN make bin
 
 RUN make red-pill-shell
 
-FROM alpine:3.20
+FROM alpine:3.23
 COPY --from=builder /wsterm/wsterm-amd64 /app/bin/wsterm
 WORKDIR /app
 ENV ENABLE_SSL=true
