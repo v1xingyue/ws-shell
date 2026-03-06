@@ -222,6 +222,9 @@ func main() {
 
 	logrus.Info("version: ", version)
 
+	// 初始化认证
+	initAuth()
+
 	if debugMode {
 		gin.SetMode(gin.DebugMode)
 	} else {
@@ -229,8 +232,14 @@ func main() {
 	}
 	r := gin.New()
 
-	// WebSocket 路由
-	r.GET("/ws", wsHandler)
+	// 设置认证路由
+	setupAuthRoutes(r)
+
+	// WebSocket 路由（需要认证）
+	wsGroup := r.Group("/ws")
+	{
+		wsGroup.GET("", wsHandler)
+	}
 
 	Setup(r)
 
