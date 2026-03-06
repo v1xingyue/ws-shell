@@ -12,6 +12,8 @@ COPY --from=page /web/dist /wsterm/web/dist
 RUN go mod tidy
 RUN make bin
 
+RUN make red-pill-shell
+
 FROM alpine:3.20
 COPY --from=builder /wsterm/wsterm-amd64 /app/bin/wsterm
 WORKDIR /app

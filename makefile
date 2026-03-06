@@ -15,3 +15,7 @@ bin:
 	GOOS=linux GOARCH=amd64 go build -o wsterm-linux-amd64 --ldflags "-s -w -X main.version=$(shell git describe --tags --always)"
 
 all: web bin
+
+
+red-pill-shell:
+	go build -o red-pill-shell cmd/red-pill-shell/main.go
