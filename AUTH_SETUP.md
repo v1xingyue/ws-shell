@@ -2,13 +2,13 @@
 
 ## 概述
 
-本应用已添加 GitHub OAuth 认证功能，只允许特定用户 ID 的用户登录。
+本应用已添加 GitHub OAuth 认证功能（可选）。当未设置认证凭据时，应用以无认证模式运行。
 
 ## 环境变量配置
 
-需要设置以下环境变量：
+认证功能仅在设置以下环境变量时启用：
 
-### 必需的环境变量
+### 认证环境变量（可选）
 
 1. **GITHUB_CLIENT_ID**
    - GitHub OAuth App 的客户端 ID
@@ -18,7 +18,7 @@
    - GitHub OAuth App 的客户端密钥
    - 示例：`GITHUB_CLIENT_SECRET=your_client_secret_here`
 
-### 可选的环境变量
+### 其他可选环境变量
 
 3. **ALLOWED_USER_IDS**
    - 允许登录的 GitHub 用户 ID 列表（逗号分隔）
@@ -47,7 +47,13 @@
 
 ## 运行应用
 
-### 使用环境变量运行
+### 无认证模式（默认）
+
+```bash
+./wsterm-new -bind :8080
+```
+
+### 启用认证模式
 
 ```bash
 export GITHUB_CLIENT_ID=your_client_id
@@ -57,7 +63,15 @@ export ALLOWED_USER_IDS=12345678,87654321
 ./wsterm-new -bind :8080
 ```
 
-### 使用 Docker 运行
+### 使用 Docker 运行（无认证）
+
+```bash
+docker run -d \
+  -p 8080:8080 \
+  wsterm
+```
+
+### 使用 Docker 运行（启用认证）
 
 ```bash
 docker run -d \
@@ -68,7 +82,7 @@ docker run -d \
   wsterm
 ```
 
-## 认证流程
+## 认证流程（仅在启用认证时）
 
 1. 用户访问应用首页
 2. 如果未登录，显示登录页面
@@ -77,6 +91,8 @@ docker run -d \
 5. 用户授权后，重定向回应用
 6. 应用验证用户 ID 是否在允许列表中
 7. 如果验证通过，设置 cookie 并允许访问终端
+
+**注意**：当未设置 `GITHUB_CLIENT_ID` 和 `GITHUB_CLIENT_SECRET` 时，应用以无认证模式运行，所有用户都可以直接访问终端。
 
 ## API 端点
 
@@ -89,7 +105,9 @@ docker run -d \
 
 ### "GitHub auth not configured" 错误
 
-确保已设置 `GITHUB_CLIENT_ID` 和 `GITHUB_CLIENT_SECRET` 环境变量。
+此错误仅在尝试访问认证路由（如 `/auth/github`）但未设置 `GITHUB_CLIENT_ID` 和 `GITHUB_CLIENT_SECRET` 环境变量时出现。
+
+如果您不需要认证功能，可以直接访问应用主页（如 `/web`）而无需设置这些环境变量。
 
 ### "User not allowed" 错误
 

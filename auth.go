@@ -19,6 +19,7 @@ var (
 	githubOAuthConfig *oauth2.Config
 	allowedUserIDs    []string
 	oauthStateString  = "random-state-string" // 在生产环境中应该随机生成
+	authEnabled       = false
 )
 
 // GitHub 用户信息结构
@@ -43,8 +44,11 @@ func initAuth() {
 
 	if clientID == "" || clientSecret == "" {
 		logrus.Warn("GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET not set, GitHub auth disabled")
+		authEnabled = false
 		return
 	}
+
+	authEnabled = true
 
 	// 解析允许的用户 ID
 	if allowedIDs != "" {
@@ -83,6 +87,10 @@ func getRedirectURL() string {
 
 // GitHub 认证路由
 func setupAuthRoutes(r *gin.Engine) {
+	if !authEnabled {
+		return
+	}
+
 	auth := r.Group("/auth")
 	{
 		auth.GET("/github", handleGitHubLogin)
@@ -94,7 +102,7 @@ func setupAuthRoutes(r *gin.Engine) {
 
 // GitHub 登录处理
 func handleGitHubLogin(c *gin.Context) {
-	if githubOAuthConfig == nil {
+	if !authEnabled || githubOAuthConfig == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": "GitHub auth not configured",
 		})
@@ -109,7 +117,7 @@ func handleGitHubLogin(c *gin.Context) {
 
 // GitHub 回调处理
 func handleGitHubCallback(c *gin.Context) {
-	if githubOAuthConfig == nil {
+	if !authEnabled || githubOAuthConfig == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": "GitHub auth not configured",
 		})
@@ -207,6 +215,12 @@ func isUserAllowed(user GitHubUser) bool {
 
 // 登出处理
 func handleLogout(c *gin.Context) {
+	if !authEnabled {
+		// 当认证未启用时，直接重定向到首页
+		c.Redirect(http.StatusFound, "/web")
+		return
+	}
+
 	// 清除 cookie
 	c.SetCookie("auth_token", "", -1, "/", "", enableSSL, true)
 	c.SetCookie("user_id", "", -1, "/", "", enableSSL, true)
@@ -220,6 +234,15 @@ func handleLogout(c *gin.Context) {
 
 // 获取当前用户信息
 func handleMe(c *gin.Context) {
+	if !authEnabled {
+		// 当认证未启用时，返回默认用户信息
+		c.JSON(http.StatusOK, gin.H{
+			"id":       "0",
+			"username": "guest",
+		})
+		return
+	}
+
 	userID, err := c.Cookie("user_id")
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -239,6 +262,12 @@ func handleMe(c *gin.Context) {
 // 认证中间件
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 如果认证未启用，直接放行
+		if !authEnabled {
+			c.Next()
+			return
+		}
+
 		// 检查 cookie 中的认证信息
 		userID, err := c.Cookie("user_id")
 		if err != nil {

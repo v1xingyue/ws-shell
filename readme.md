@@ -1,12 +1,12 @@
 # ws-shell
 
-A shell running based on websocket with GitHub OAuth authentication.
+A shell running based on websocket with optional GitHub OAuth authentication.
 
 ## Features
 
 - WebSocket-based terminal emulator
-- GitHub OAuth authentication
-- User access control via allowed user IDs
+- Optional GitHub OAuth authentication (only enabled when credentials are provided)
+- User access control via allowed user IDs (when authentication is enabled)
 - SSL support
 
 ## Build and compile
@@ -24,9 +24,17 @@ You can copy the binary to any server and run it.
 ./wsterm
 ```
 
-### With GitHub Authentication
+### Without Authentication (Default)
 
-Set the following environment variables:
+By default, the application runs without authentication. Simply run:
+
+```bash
+./wsterm
+```
+
+### With GitHub Authentication (Optional)
+
+To enable GitHub OAuth authentication, set the following environment variables:
 
 ```bash
 export GITHUB_CLIENT_ID=your_github_client_id

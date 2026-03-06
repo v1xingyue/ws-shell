@@ -5,17 +5,19 @@
 ### 1. 后端实现 (Go)
 
 #### 新增文件: `auth.go`
-- 实现了 GitHub OAuth 认证流程
-- 添加了认证路由:
+- 实现了 GitHub OAuth 认证流程（可选功能）
+- 认证仅在设置 `GITHUB_CLIENT_ID` 和 `GITHUB_CLIENT_SECRET` 时启用
+- 未设置认证凭据时，应用以无认证模式运行
+- 添加了认证路由（仅在认证启用时）:
   - `GET /auth/github` - 启动 GitHub OAuth 流程
   - `GET /auth/github/callback` - GitHub OAuth 回调处理
   - `GET /auth/logout` - 用户登出
   - `GET /auth/me` - 获取当前用户信息
-- 实现了认证中间件 `AuthMiddleware()`
+- 实现了认证中间件 `AuthMiddleware()`（认证未启用时直接放行）
 - 支持从环境变量读取配置:
-  - `GITHUB_CLIENT_ID` - GitHub OAuth 客户端 ID
-  - `GITHUB_CLIENT_SECRET` - GitHub OAuth 客户端密钥
-  - `ALLOWED_USER_IDS` - 允许登录的用户 ID 列表（逗号分隔）
+  - `GITHUB_CLIENT_ID` - GitHub OAuth 客户端 ID（可选）
+  - `GITHUB_CLIENT_SECRET` - GitHub OAuth 客户端密钥（可选）
+  - `ALLOWED_USER_IDS` - 允许登录的用户 ID 列表（逗号分隔，可选）
 
 #### 修改文件: `main.go`
 - 添加了 `initAuth()` 初始化认证
