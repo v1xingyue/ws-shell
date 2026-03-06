@@ -3,3 +3,5 @@ wsterm
 wsterm-*
 cert.pem
 key.pem
+red-pill-shell
+web/package-lock.json
