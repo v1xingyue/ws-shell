@@ -10,13 +10,12 @@ COPY . /wsterm
 WORKDIR /wsterm
 COPY --from=page /web/dist /wsterm/web/dist
 RUN go mod tidy
-RUN make bin
+RUN make build
 
-RUN make red-pill-shell
+#RUN make red-pill-shell
 
 FROM alpine:3.23
-ARG TARGETARCH
-COPY --from=builder /wsterm/wsterm-${TARGETARCH} /app/bin/wsterm
+COPY --from=builder /wsterm/wsterm /app/bin/wsterm
 WORKDIR /app
 ENV ENABLE_SSL=false
 CMD ["/app/bin/wsterm","-bind",":80","-fork","/bin/sh"]

@@ -1,4 +1,7 @@
-.PHONY: web
+.PHONY: build web bin all red-pill-shell
+
+build:
+	go build -o wsterm --ldflags "-s -w -X main.version=$(shell git describe --tags --always)"
 
 web: 
 	cd web && pnpm install && pnpm run build

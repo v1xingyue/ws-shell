@@ -193,8 +193,9 @@ func handleGitHubCallback(c *gin.Context) {
 	if !isUserAllowed(githubUser) {
 		logrus.Warnf("User %s (ID: %d) not allowed", githubUser.Login, githubUser.ID)
 		c.JSON(http.StatusForbidden, gin.H{
-			"error": "User not allowed",
-			"user":  githubUser.Login,
+			"error":   "User not allowed",
+			"user":    githubUser.Login,
+			"user_id": githubUser.ID,
 		})
 		return
 	}
@@ -300,7 +301,8 @@ func AuthMiddleware() gin.HandlerFunc {
 			}
 			if !allowed {
 				c.JSON(http.StatusForbidden, gin.H{
-					"error": "User not allowed",
+					"error":   "User not allowed",
+					"user_id": userID,
 				})
 				c.Abort()
 				return
