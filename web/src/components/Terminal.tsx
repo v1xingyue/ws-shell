@@ -1,8 +1,6 @@
-import { useEffect, useRef } from "react";
-import { Terminal as XTerm } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebglAddon } from "@xterm/addon-webgl";
-import "@xterm/xterm/css/xterm.css";
+import { type CSSProperties, useCallback, useEffect, useRef } from "react";
+import { Terminal as WTerm, type TerminalHandle } from "@wterm/react";
+import "@wterm/react/css";
 
 // 定义消息接口
 interface TerminalMessage {
@@ -13,61 +11,35 @@ interface TerminalMessage {
 }
 
 const Terminal = () => {
-  const terminalRef = useRef<HTMLDivElement>(null);
-  const terminalInstance = useRef<XTerm | null>(null);
+  const terminalRef = useRef<TerminalHandle>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const params = new URLSearchParams(window.location.search);
   const username = params.get("user") || "staff";
 
-  useEffect(() => {
-    // Initialize terminal
-    const term = new XTerm({
-      cursorBlink: true,
-      fontSize: 14,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      theme: {
-        background: "#1e1e1e",
-        foreground: "#f0f0f0",
-        cursor: "#f0f0f0",
-        // Dracula theme colors
-        black: "#21222C",
-        red: "#FF5555",
-        green: "#50FA7B",
-        yellow: "#F1FA8C",
-        blue: "#BD93F9",
-        magenta: "#FF79C6",
-        cyan: "#8BE9FD",
-        white: "#F8F8F2",
-        brightBlack: "#6272A4",
-        brightRed: "#FF6E6E",
-        brightGreen: "#69FF94",
-        brightYellow: "#FFFFA5",
-        brightBlue: "#D6ACFF",
-        brightMagenta: "#FF92DF",
-        brightCyan: "#A4FFFF",
-        brightWhite: "#FFFFFF",
-      },
-      convertEol: true,
-      scrollback: 1000,
-      allowTransparency: true,
-    });
-
-    terminalInstance.current = term;
-
-    // Add WebGL addon
-    const webglAddon = new WebglAddon();
-    term.loadAddon(webglAddon);
-
-    // Add FitAddon
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-
-    // Open terminal in container
-    if (terminalRef.current) {
-      term.open(terminalRef.current);
-      fitAddon.fit();
+  const sendResize = useCallback((cols: number, rows: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "resize",
+          cols,
+          rows,
+        })
+      );
     }
+  }, []);
 
+  const handleData = useCallback((data: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "input",
+          data,
+        })
+      );
+    }
+  }, []);
+
+  useEffect(() => {
     // Connect WebSocket
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(
@@ -108,10 +80,8 @@ const Terminal = () => {
         }
 
         if (message.type === "resize" && message.cols && message.rows) {
-          // 处理调整大小的请求
-          if (terminalInstance.current) {
-            terminalInstance.current.resize(message.cols, message.rows);
-          }
+          terminalRef.current?.resize(message.cols, message.rows);
+          sendResize(message.cols, message.rows);
         }
       } catch (error) {
         console.error("Failed to parse postMessage:", error);
@@ -123,9 +93,7 @@ const Terminal = () => {
     // Handle WebSocket events
     ws.onmessage = (event) => {
       // 写入到终端
-      if (terminalInstance.current) {
-        terminalInstance.current.write(event.data);
-      }
+      terminalRef.current?.write(event.data);
 
       // 将结果发送回父窗口
       window.parent.postMessage(
@@ -138,64 +106,40 @@ const Terminal = () => {
     };
 
     ws.onclose = () => {
-      term.write("\r\n\x1b[31mConnection closed\x1b[0m\r\n");
+      terminalRef.current?.write("\r\n\x1b[31mConnection closed\x1b[0m\r\n");
     };
-
-    // Handle terminal input
-    term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: "input",
-            data: data,
-          })
-        );
-      }
-    });
-
-    // Send terminal dimensions on connection
-    ws.onopen = () => {
-      ws.send(
-        JSON.stringify({
-          type: "resize",
-          cols: term.cols,
-          rows: term.rows,
-        })
-      );
-    };
-
-    // Handle window resize
-    const handleResize = () => {
-      fitAddon.fit();
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: "resize",
-            cols: term.cols,
-            rows: term.rows,
-          })
-        );
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-
-    // Error handling for WebGL
-    webglAddon.onContextLoss(() => {
-      webglAddon.dispose();
-    });
 
     // Cleanup
     return () => {
-      window.removeEventListener("resize", handleResize);
       window.removeEventListener("message", handleMessage);
-      webglAddon.dispose();
-      term.dispose();
       ws.close();
     };
-  }, []);
+  }, [sendResize, username]);
 
-  return <div ref={terminalRef} style={{ width: "100%", height: "100vh" }} />;
+  const terminalStyle = {
+    width: "100%",
+    height: "100vh",
+    boxSizing: "border-box",
+    borderRadius: 0,
+    boxShadow: "none",
+    "--term-bg": "#1e1e1e",
+    "--term-fg": "#f0f0f0",
+    "--term-cursor": "#f0f0f0",
+    "--term-font-family": 'Menlo, Monaco, "Courier New", monospace',
+    "--term-font-size": "14px",
+  } as CSSProperties;
+
+  return (
+    <WTerm
+      ref={terminalRef}
+      autoResize
+      cursorBlink
+      onData={handleData}
+      onReady={(term) => sendResize(term.cols, term.rows)}
+      onResize={sendResize}
+      style={terminalStyle}
+    />
+  );
 };
 
 export default Terminal;

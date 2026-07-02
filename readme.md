@@ -117,6 +117,9 @@ The program optionally loads environment variables from `.env` in the current wo
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth client secret |
 | `ALLOWED_USER_IDS` | Comma-separated GitHub user IDs allowed to log in. If unset, any logged-in GitHub user is allowed. |
 | `OAUTH_REDIRECT_URL` | OAuth callback URL. If unset, it is built from the request host. |
+| `OAUTH_LOCAL_DEV` | Set to `true` to start OAuth through the public callback and bounce the one-time code back to local dev. |
+| `OAUTH_LOCAL_REDIRECT_URL` | Public OAuth callback used in local dev. Default: `https://ws-shell.vercel.app/auth/github/callback?local=true`. |
+| `OAUTH_LOCAL_CALLBACK_URL` | Local callback target for the public bounce. Default: `http://localhost/auth/github/callback`. |
 | `ENABLE_SSL` | Enables HTTPS when set to `true` |
 | `-bind` | Listen address, default `:8080` |
 | `-fork` | Shell to start, default `/bin/bash` |
@@ -141,6 +144,7 @@ The program optionally loads environment variables from `.env` in the current wo
 - The program builds the callback URL from the current request host by default.
 - The **Authorization callback URL** in GitHub must match the real access URL. For example, if you open `http://192.168.3.51:8080/web`, use `http://192.168.3.51:8080/auth/github/callback`.
 - Set `OAUTH_REDIRECT_URL` only when a reverse proxy or similar setup makes the request host differ from the public URL.
+- For local debugging with the fixed production OAuth callback, set `OAUTH_LOCAL_DEV=true`; the public callback redirects the one-time GitHub code back to `OAUTH_LOCAL_CALLBACK_URL`.
 
 ### Get a GitHub User ID
 

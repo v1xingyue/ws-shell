@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -89,11 +90,59 @@ func getRedirectURL() string {
 
 // redirectURLFromRequest 按当前请求的 Host 和协议自动拼回调地址，无需在 .env 配置 OAUTH_REDIRECT_URL
 func redirectURLFromRequest(c *gin.Context) string {
+	if redirectURL := os.Getenv("OAUTH_REDIRECT_URL"); redirectURL != "" {
+		return redirectURL
+	}
+	if localOAuthDevEnabled() || c.Query("local") == "true" {
+		return localOAuthRedirectURL()
+	}
 	scheme := "http"
 	if c.GetHeader("X-Forwarded-Proto") == "https" || c.Request.TLS != nil {
 		scheme = "https"
 	}
 	return scheme + "://" + c.Request.Host + "/auth/github/callback"
+}
+
+func localOAuthDevEnabled() bool {
+	return os.Getenv("OAUTH_LOCAL_DEV") == "true"
+}
+
+func localOAuthRedirectURL() string {
+	if redirectURL := os.Getenv("OAUTH_LOCAL_REDIRECT_URL"); redirectURL != "" {
+		return redirectURL
+	}
+	return "https://ws-shell.vercel.app/auth/github/callback?local=true"
+}
+
+func localOAuthCallbackURL() string {
+	if callbackURL := os.Getenv("OAUTH_LOCAL_CALLBACK_URL"); callbackURL != "" {
+		return callbackURL
+	}
+	return "http://localhost/auth/github/callback"
+}
+
+func redirectLocalOAuthCallback(c *gin.Context) bool {
+	if c.Query("local") != "true" || localOAuthDevEnabled() {
+		return false
+	}
+	callbackURL, err := url.Parse(localOAuthCallbackURL())
+	if err != nil || callbackURL.Scheme == "" || callbackURL.Host == "" {
+		logrus.Errorf("Invalid OAUTH_LOCAL_CALLBACK_URL: %s", localOAuthCallbackURL())
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Invalid local OAuth callback URL",
+		})
+		return true
+	}
+	query := callbackURL.Query()
+	for _, key := range []string{"code", "state", "error", "error_description"} {
+		if value := c.Query(key); value != "" {
+			query.Set(key, value)
+		}
+	}
+	query.Set("local", "true")
+	callbackURL.RawQuery = query.Encode()
+	c.Redirect(http.StatusFound, callbackURL.String())
+	return true
 }
 
 // GitHub 认证路由
@@ -121,6 +170,7 @@ func handleGitHubLogin(c *gin.Context) {
 
 	// 按请求 Host 自动拼回调地址，与 GitHub 里填的 Authorization callback URL 一致即可
 	redirectURL := redirectURLFromRequest(c)
+	logrus.Infof("GitHub OAuth redirect URL: %s", redirectURL)
 	state := oauthStateString
 	url := githubOAuthConfig.AuthCodeURL(state, oauth2.SetAuthURLParam("redirect_uri", redirectURL))
 	c.Redirect(http.StatusFound, url)
@@ -132,6 +182,9 @@ func handleGitHubCallback(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": "GitHub auth not configured",
 		})
+		return
+	}
+	if redirectLocalOAuthCallback(c) {
 		return
 	}
 

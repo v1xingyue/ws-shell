@@ -117,6 +117,9 @@ export ALLOWED_USER_IDS=12345678
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth 客户端密钥 |
 | `ALLOWED_USER_IDS` | 允许登录的 GitHub 用户 ID，逗号分隔；不设则允许所有已登录 GitHub 用户 |
 | `OAUTH_REDIRECT_URL` | OAuth 回调地址；不设则按请求 Host 自动拼 |
+| `OAUTH_LOCAL_DEV` | 设为 `true` 时，本地调试通过公网回调接收 GitHub code，再转回本地 |
+| `OAUTH_LOCAL_REDIRECT_URL` | 本地调试使用的公网 OAuth 回调，默认 `https://ws-shell.vercel.app/auth/github/callback?local=true` |
+| `OAUTH_LOCAL_CALLBACK_URL` | 公网回调转回的本地地址，默认 `http://localhost/auth/github/callback` |
 | `ENABLE_SSL` | `true` 时启用 HTTPS |
 | `-bind` | 监听地址，默认 `:8080` |
 | `-fork` | 启动的 shell，默认 `/bin/bash` |
@@ -141,6 +144,7 @@ export ALLOWED_USER_IDS=12345678
 - 程序默认按**当前请求的 Host** 自动拼回调地址。
 - GitHub 里填的 **Authorization callback URL** 必须和实际访问地址一致。例如用 `http://192.168.3.51:8080/web` 访问，就填 `http://192.168.3.51:8080/auth/github/callback`。
 - 仅在反向代理等导致 Host 与真实访问地址不一致时，才需要设置 `OAUTH_REDIRECT_URL`。
+- 如果线上 OAuth 回调已固定，本地调试可设置 `OAUTH_LOCAL_DEV=true`；公网回调会把一次性的 GitHub code 转回 `OAUTH_LOCAL_CALLBACK_URL`。
 
 ### 获取 GitHub 用户 ID
 
