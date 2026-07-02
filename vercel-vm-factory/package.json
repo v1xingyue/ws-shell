@@ -1,6 +1,6 @@
 {
   "name": "vercel-vm-factory",
-  "version": "0.9.8",
+  "version": "0.10.8",
   "description": "Create Vercel Container deployments for ws-shell from selectable VM images.",
   "license": "MIT",
   "type": "module",
@@ -12,6 +12,9 @@
     "deploy-vm.mjs",
     "README.md"
   ],
+  "dependencies": {
+    "@clack/prompts": "^0.11.0"
+  },
   "scripts": {
     "deploy": "node deploy-vm.mjs create",
     "doctor": "node deploy-vm.mjs doctor",

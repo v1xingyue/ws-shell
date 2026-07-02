@@ -78,9 +78,11 @@ Choosing bash or zsh adds the matching package to the generated Dockerfile when 
 
 Generated shell setup examples:
 
-- Alpine + `/bin/zsh`: installs `zsh curl git`, then installs oh-my-zsh unattended.
+- Alpine + `/bin/zsh`: installs `zsh curl git`, installs oh-my-zsh unattended, and writes `/root/.zshrc`.
 - Ubuntu/Debian + `/bin/bash`: installs `bash` with `apt-get`.
 - `/bin/sh`: no extra shell package is installed.
+
+The generated Dockerfile sets `HOME=/root` and `SHELL` to the selected shell path.
 
 Preinstall tools:
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { homedir } from "node:os";
 import path from "node:path";
+import * as p from "@clack/prompts";
 
 const defaultWsShellImage = "ghcr.io/v1xingyue/ws-shell:v1.8.alpine";
 
@@ -294,15 +294,14 @@ async function installVercelCli() {
     );
 
   const install = await choosePackageInstall();
-  const answer = (
-    await askText(
-      `Vercel CLI is not installed. Install with ${install.command} ${install.args.join(" ")}?`,
-      "N",
-    )
-  ).toLowerCase();
+  const answer = await promptResult(
+    p.confirm({
+      message: `Vercel CLI is not installed. Install with ${install.command} ${install.args.join(" ")}?`,
+      initialValue: false,
+    }),
+  );
 
-  if (answer !== "y" && answer !== "yes")
-    throw new Error("Vercel CLI is required. Exiting.");
+  if (!answer) throw new Error("Vercel CLI is required. Exiting.");
 
   step(`Installing Vercel CLI with ${install.command}`);
   await runNoUrl(install.command, install.args);
@@ -367,7 +366,13 @@ function makeDockerfile({ shell, tools, vmImage, vmImageName, wsShellImage }) {
   const shellInstall = makeShellInstall({ shell, vmImageName });
   const ohMyZshInstall =
     path.basename(shell) === "zsh"
-      ? `RUN RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended`
+      ? `RUN RUNZSH=no CHSH=no KEEP_ZSHRC=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \\
+    && printf '%s\\n' \\
+      'export ZSH="$HOME/.oh-my-zsh"' \\
+      'ZSH_THEME="robbyrussell"' \\
+      'plugins=(git)' \\
+      'source "$ZSH/oh-my-zsh.sh"' \\
+      > /root/.zshrc`
       : "";
   const toolInstall = makeToolInstall({ tools, vmImageName });
   const shellSetup = [shellInstall, ohMyZshInstall, toolInstall]
@@ -384,6 +389,8 @@ COPY --from=ws-shell /app/bin/wsterm /app/bin/wsterm
 
 WORKDIR /app
 ENV ENABLE_SSL=false
+ENV HOME=/root
+ENV SHELL=${shell}
 EXPOSE 80
 CMD ["/app/bin/wsterm","-bind",":80","-fork","${shell}"]
 `;
@@ -468,7 +475,7 @@ async function secret(name, question, fallback) {
   if (!input.isTTY) return fallback || "";
 
   const placeholder = fallback ? mask(fallback) : "skip";
-  const answer = await askText(question, placeholder);
+  const answer = await askSecret(question, placeholder);
   return answer || fallback || "";
 }
 
@@ -513,22 +520,18 @@ async function chooseAuthMode(fallback) {
   }
   if (!input.isTTY) return modes.has(fallback) ? fallback : "basic";
 
-  printChoices("Authentication", [
-    ["1", "basic", "username/password"],
-    ["2", "github", "GitHub OAuth"],
-    ["3", "both", "basic + GitHub OAuth"],
-    ["4", "none", "no app auth"],
-  ]);
-
-  const answer = await askText("Authentication", fallback);
-
-  if (!answer) return modes.has(fallback) ? fallback : "basic";
-  if (modes.has(answer)) return answer;
-  if (answer === "1") return "basic";
-  if (answer === "2") return "github";
-  if (answer === "3") return "both";
-  if (answer === "4") return "none";
-  throw new Error("Authentication must be basic, github, both, or none");
+  return promptResult(
+    p.select({
+      message: "Authentication",
+      initialValue: modes.has(fallback) ? fallback : "basic",
+      options: [
+        { value: "basic", label: "Basic", hint: "username/password" },
+        { value: "github", label: "GitHub OAuth" },
+        { value: "both", label: "Basic + GitHub OAuth" },
+        { value: "none", label: "None", hint: "no app auth" },
+      ],
+    }),
+  );
 }
 
 function usesBasicAuth(mode) {
@@ -545,25 +548,23 @@ async function chooseVmImage(fallback) {
   if (!input.isTTY) return fallback;
 
   const names = Object.keys(vmImages);
-  printChoices(
-    "VM image",
-    names.map((name, index) => [
-      String(index + 1),
-      name,
-      vmImages[name],
-    ]).concat([["4", "custom", "enter a full image name"]]),
+  const answer = await promptResult(
+    p.select({
+      message: "VM image",
+      initialValue: vmImages[fallback] ? fallback : "custom",
+      options: names
+        .map((name) => ({ value: name, label: name, hint: vmImages[name] }))
+        .concat([
+          { value: "custom", label: "Custom", hint: "enter a full image name" },
+        ]),
+    }),
   );
 
-  const answer = await askText("VM image", fallback);
-
-  if (!answer) return fallback;
-  if (vmImages[answer]) return answer;
-  if (/^[1-3]$/.test(answer)) return names[Number(answer) - 1];
-  if (answer === "4")
+  if (answer === "custom")
     return value(
       "custom-vm-image",
       "Custom VM image",
-      defaults["custom-vm-image"],
+      vmImages[fallback] ? defaults["custom-vm-image"] : fallback,
     );
   return answer;
 }
@@ -572,21 +573,17 @@ async function chooseShell(fallback) {
   if (args.shell) return args.shell;
   if (!input.isTTY) return fallback;
 
-  printChoices(
-    "Shell",
-    shells.map((shell, index) => [
-      String(index + 1),
-      shell,
-      index === shells.length - 1 ? "default" : "",
-    ]),
+  return promptResult(
+    p.select({
+      message: "Shell",
+      initialValue: shells.includes(fallback) ? fallback : "/bin/sh",
+      options: shells.map((shell, index) => ({
+        value: shell,
+        label: shell,
+        hint: index === shells.length - 1 ? "default" : undefined,
+      })),
+    }),
   );
-
-  const answer = await askText("Shell", fallback);
-
-  if (!answer) return fallback;
-  if (shells.includes(answer)) return answer;
-  if (/^[1-3]$/.test(answer)) return shells[Number(answer) - 1];
-  return answer;
 }
 
 async function chooseTools(fallback) {
@@ -594,17 +591,20 @@ async function chooseTools(fallback) {
   if (!input.isTTY) return parseTools(fallback).join(",");
 
   const names = Object.keys(toolChoices);
-  printChoices(
-    "Preinstall tools",
-    names.map((name, index) => [
-      String(index + 1),
-      name,
-      toolChoices[name],
-    ]).concat([["0", "none", "default"]]),
+  const selected = await promptResult(
+    p.multiselect({
+      message: "Preinstall tools",
+      required: false,
+      initialValues: parseTools(fallback),
+      options: names.map((name) => ({
+        value: name,
+        label: name,
+        hint: toolChoices[name],
+      })),
+    }),
   );
 
-  const answer = await askText("Tools (comma separated)", fallback || "none");
-  return parseTools(answer || fallback).join(",");
+  return selected.join(",");
 }
 
 function parseTools(value) {
@@ -779,6 +779,10 @@ function findLastUrl(text) {
 }
 
 function printHeader() {
+  if (input.isTTY) {
+    p.intro("Vercel VM Factory");
+    return;
+  }
   console.log("");
   console.log(color.cyan(" __     ____  __   _____           _                   "));
   console.log(color.cyan(" \\ \\   / /  \\/  | |  ___|_ _  ___| |_ ___  _ __ _   _ "));
@@ -830,25 +834,35 @@ function printKeyValue(key, value) {
 }
 
 async function askText(question, fallback = "") {
-  const suffix = fallback ? color.dim(` [${fallback}]`) : "";
-  const rl = createInterface({ input, output });
-  const answer = (
-    await rl.question(
-      `${color.cyan("?")} ${color.bold(question)}${suffix}\n${color.dim("> ")} `,
-    )
+  return String(
+    await promptResult(
+      p.text({
+        message: question,
+        placeholder: fallback || undefined,
+      }),
+    ),
   ).trim();
-  rl.close();
-  return answer;
 }
 
-function printChoices(title, choices) {
-  console.log("");
-  console.log(color.bold(title));
-  for (const [key, label, detail] of choices) {
-    const hint = detail ? ` ${color.dim(detail)}` : "";
-    console.log(`  ${color.cyan(key)}  ${label}${hint}`);
+async function askSecret(question, fallback = "") {
+  return String(
+    await promptResult(
+      p.password({
+        message: question,
+        mask: "*",
+        placeholder: fallback || undefined,
+      }),
+    ),
+  ).trim();
+}
+
+async function promptResult(resultPromise) {
+  const result = await resultPromise;
+  if (p.isCancel(result)) {
+    p.cancel("Operation cancelled.");
+    process.exit(0);
   }
-  console.log("");
+  return result;
 }
 
 function step(text) {
