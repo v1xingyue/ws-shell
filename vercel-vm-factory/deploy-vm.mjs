@@ -6,7 +6,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { homedir } from "node:os";
 import path from "node:path";
 
-const defaultWsShellImage = "ghcr.io/v1xingyue/ws-shell:v1.2.alpine";
+const defaultWsShellImage = "ghcr.io/v1xingyue/ws-shell:v1.3.alpine";
 
 const bases = {
   alpine: "alpine:3.23",
