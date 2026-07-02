@@ -1,6 +1,6 @@
 # Vercel VM Factory
 
-Create a tiny Vercel Container deployment: copy `wsterm` from `ghcr.io/v1xingyue/ws-shell:v1.1.alpine` into a selected base image, then deploy with Vercel CLI.
+Create a tiny Vercel Container deployment: copy `wsterm` from `ghcr.io/v1xingyue/ws-shell:v1.8.alpine` into a selected base image, then deploy with Vercel CLI.
 
 ```bash
 npx vercel-vm-factory create \

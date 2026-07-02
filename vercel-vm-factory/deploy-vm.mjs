@@ -57,6 +57,8 @@ try {
 
 async function main() {
   printHeader();
+  await ensureVercelInstalled();
+  await ensureVercelLogin();
 
   if (args.doctor || command === "doctor") {
     await doctor();
@@ -119,7 +121,6 @@ async function main() {
     return;
   }
 
-  await ensureVercelReady();
   if (usesGitHubAuth(authMode)) printOAuthGuide(oauthRedirectUrl);
 
   const authUsername = usesBasicAuth(authMode)
@@ -233,17 +234,7 @@ async function setContainerFramework(appDir, commonArgs) {
   ]);
 }
 
-async function ensureVercelReady() {
-  step("Checking Vercel CLI");
-  try {
-    const version = await runCapture("vercel", ["--version"]);
-    ok(version.split("\n").filter(Boolean).at(-1) || "vercel installed");
-  } catch {
-    throw new Error(
-      "Vercel CLI is not installed. Install it with: pnpm add -g vercel",
-    );
-  }
-
+async function ensureVercelLogin() {
   step("Checking Vercel login");
   try {
     const whoami = await runCapture("vercel", ["whoami"]);
@@ -254,18 +245,72 @@ async function ensureVercelReady() {
   }
 }
 
+async function ensureVercelInstalled() {
+  step("Checking Vercel CLI");
+  try {
+    const version = await runCapture("vercel", ["--version"]);
+    ok(version.split("\n").filter(Boolean).at(-1) || "vercel installed");
+  } catch {
+    await installVercelCli();
+    const version = await runCapture("vercel", ["--version"]);
+    ok(version.split("\n").filter(Boolean).at(-1) || "vercel installed");
+  }
+}
+
+async function installVercelCli() {
+  if (!input.isTTY)
+    throw new Error(
+      "Vercel CLI is not installed. Run this in a terminal to install it.",
+    );
+
+  const install = await choosePackageInstall();
+  const rl = createInterface({ input, output });
+  const answer = (
+    await rl.question(
+      `Vercel CLI is not installed. Install it with "${install.command} ${install.args.join(" ")}"? [y/N]: `,
+    )
+  )
+    .trim()
+    .toLowerCase();
+  rl.close();
+
+  if (answer !== "y" && answer !== "yes")
+    throw new Error("Vercel CLI is required. Exiting.");
+
+  step(`Installing Vercel CLI with ${install.command}`);
+  await runNoUrl(install.command, install.args);
+}
+
+async function choosePackageInstall() {
+  const installs = [
+    { command: "pnpm", args: ["add", "-g", "vercel"] },
+    { command: "npm", args: ["install", "-g", "vercel"] },
+    { command: "yarn", args: ["global", "add", "vercel"] },
+    { command: "bun", args: ["add", "-g", "vercel"] },
+  ];
+
+  for (const install of installs) {
+    try {
+      await runCapture(install.command, ["--version"]);
+      return install;
+    } catch {
+      // Try the next package manager.
+    }
+  }
+
+  throw new Error(
+    "No package manager found. Install pnpm, npm, yarn, or bun first.",
+  );
+}
+
 async function doctor() {
-  await ensureVercelReady();
   console.log("");
   console.log(color.bold("Saved defaults"));
   printKeyValue("defaults file", defaultsPath);
   printKeyValue("base", defaults.base || "not set");
   printKeyValue("project", defaults.project || "not set");
   printKeyValue("scope", defaults.scope || "not set");
-  printKeyValue(
-    "source image",
-    defaults.from || "ghcr.io/v1xingyue/ws-shell:v1.1.alpine",
-  );
+  printKeyValue("source image", defaults.from || defaultWsShellImage);
   printKeyValue("auth mode", defaults["auth-mode"] || "not set");
   printKeyValue(
     "auth user",
