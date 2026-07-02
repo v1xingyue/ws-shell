@@ -14,7 +14,10 @@ RUN make build
 
 #RUN make red-pill-shell
 
-FROM alpine:3.23
+# Change this base image to switch the container userland, e.g. ubuntu:24.04 or debian:13-slim.
+FROM alpine:3.23 AS base
+
+FROM base
 COPY --from=builder /wsterm/wsterm /app/bin/wsterm
 WORKDIR /app
 ENV ENABLE_SSL=false

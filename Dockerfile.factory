@@ -1,0 +1,12 @@
+ARG WS_SHELL_IMAGE=ghcr.io/v1xingyue/ws-shell:v1.1.alpine
+ARG BASE_IMAGE=alpine:3.23
+
+FROM ${WS_SHELL_IMAGE} AS ws-shell
+FROM ${BASE_IMAGE} AS base
+
+# wsterm already embeds the web UI; runtime config comes from environment variables.
+COPY --from=ws-shell /app/bin/wsterm /app/bin/wsterm
+
+WORKDIR /app
+ENV ENABLE_SSL=false
+CMD ["/app/bin/wsterm","-bind",":80","-fork","/bin/sh"]

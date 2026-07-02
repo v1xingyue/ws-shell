@@ -238,7 +238,7 @@ func main() {
 	setupAuthRoutes(r)
 
 	// WebSocket 路由（需要认证）
-	wsGroup := r.Group("/ws")
+	wsGroup := r.Group("/ws", AuthMiddleware())
 	{
 		wsGroup.GET("", wsHandler)
 	}

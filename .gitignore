@@ -1,4 +1,5 @@
 wsterm
+.vercel-vm-factory/
 ws-shell
 .DS_Store
 wsterm-*

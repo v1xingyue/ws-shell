@@ -41,5 +41,5 @@ var defaultUser = getDefualtUser()
 var singleUserMode = true
 var webDistPrefix = "web/dist/"
 var debugMode = false
-var bindAddress = ":8080"
+var bindAddress = ":80"
 var forkCmd = "/bin/bash"

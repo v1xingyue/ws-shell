@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -21,6 +25,9 @@ var (
 	allowedUserIDs    []string
 	oauthStateString  = "random-state-string" // 在生产环境中应该随机生成
 	authEnabled       = false
+	githubAuthEnabled = false
+	passwordUsername  string
+	passwordValue     string
 )
 
 // GitHub 用户信息结构
@@ -32,23 +39,25 @@ type GitHubUser struct {
 
 // Session 用户信息
 type SessionUser struct {
-	ID       int64  `json:"id"`
+	ID       string `json:"id"`
 	Username string `json:"username"`
 	Email    string `json:"email"`
+	Provider string `json:"provider"`
 }
 
 func initAuth() {
 	// 从环境变量读取配置
 	clientID := os.Getenv("GITHUB_CLIENT_ID")
 	clientSecret := os.Getenv("GITHUB_CLIENT_SECRET")
+	passwordUsername = strings.TrimSpace(os.Getenv("AUTH_USERNAME"))
+	passwordValue = os.Getenv("AUTH_PASSWORD")
+	githubAuthEnabled = clientID != "" && clientSecret != ""
+	authEnabled = githubAuthEnabled || (passwordUsername != "" && passwordValue != "")
 
-	if clientID == "" || clientSecret == "" {
-		logrus.Warn("GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET not set, GitHub auth disabled")
-		authEnabled = false
+	if !authEnabled {
+		logrus.Warn("No auth configured, authentication disabled")
 		return
 	}
-
-	authEnabled = true
 
 	// 解析允许登录的 GitHub 用户 ID 列表（仅支持 ALLOWED_USER_IDS，见文档获取方法）
 	if allowedIDs := os.Getenv("ALLOWED_USER_IDS"); allowedIDs != "" {
@@ -60,6 +69,16 @@ func initAuth() {
 		logrus.Infof("Allowed user IDs: %v", allowedUserIDs)
 	}
 
+	if !githubAuthEnabled {
+		logrus.Warn("GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET not set, GitHub auth disabled")
+	}
+	if passwordUsername != "" && passwordValue != "" {
+		logrus.Infof("Password auth initialized for user %s", passwordUsername)
+	}
+	if !githubAuthEnabled {
+		return
+	}
+
 	// 配置 GitHub OAuth
 	githubOAuthConfig = &oauth2.Config{
 		ClientID:     clientID,
@@ -69,7 +88,7 @@ func initAuth() {
 		Scopes:       []string{"user:email"},
 	}
 
-	logrus.Info("GitHub OAuth initialized")
+	logrus.Infof("GitHub OAuth initialized, local dev: %v", localOAuthDevEnabled())
 }
 
 func getRedirectURL() string {
@@ -104,7 +123,8 @@ func redirectURLFromRequest(c *gin.Context) string {
 }
 
 func localOAuthDevEnabled() bool {
-	return os.Getenv("OAUTH_LOCAL_DEV") == "true"
+	value := strings.TrimSpace(os.Getenv("OAUTH_LOCAL_DEV"))
+	return strings.EqualFold(value, "true") || value == "1"
 }
 
 func localOAuthRedirectURL() string {
@@ -152,7 +172,10 @@ func setupAuthRoutes(r *gin.Engine) {
 	{
 		auth.GET("/me", handleMe)
 		auth.GET("/logout", handleLogout)
-		if authEnabled {
+		if passwordUsername != "" && passwordValue != "" {
+			auth.POST("/password", handlePasswordLogin)
+		}
+		if githubAuthEnabled {
 			auth.GET("/github", handleGitHubLogin)
 			auth.GET("/github/callback", handleGitHubCallback)
 		}
@@ -161,7 +184,7 @@ func setupAuthRoutes(r *gin.Engine) {
 
 // GitHub 登录处理
 func handleGitHubLogin(c *gin.Context) {
-	if !authEnabled || githubOAuthConfig == nil {
+	if !githubAuthEnabled || githubOAuthConfig == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": "GitHub auth not configured",
 		})
@@ -178,7 +201,7 @@ func handleGitHubLogin(c *gin.Context) {
 
 // GitHub 回调处理
 func handleGitHubCallback(c *gin.Context) {
-	if !authEnabled || githubOAuthConfig == nil {
+	if !githubAuthEnabled || githubOAuthConfig == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": "GitHub auth not configured",
 		})
@@ -253,10 +276,12 @@ func handleGitHubCallback(c *gin.Context) {
 		return
 	}
 
-	// 设置 cookie
-	c.SetCookie("auth_token", token.AccessToken, 3600, "/", "", enableSSL, true)
-	c.SetCookie("user_id", fmt.Sprintf("%d", githubUser.ID), 3600, "/", "", enableSSL, true)
-	c.SetCookie("username", githubUser.Login, 3600, "/", "", enableSSL, true)
+	setSessionCookies(c, SessionUser{
+		ID:       fmt.Sprintf("%d", githubUser.ID),
+		Username: githubUser.Login,
+		Email:    githubUser.Email,
+		Provider: "github",
+	})
 
 	logrus.Infof("User %s (ID: %d) logged in successfully", githubUser.Login, githubUser.ID)
 
@@ -278,6 +303,94 @@ func isUserAllowed(user GitHubUser) bool {
 	return false
 }
 
+func handlePasswordLogin(c *gin.Context) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(req.Username), []byte(passwordUsername)) != 1 ||
+		subtle.ConstantTimeCompare([]byte(req.Password), []byte(passwordValue)) != 1 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
+		return
+	}
+
+	user := SessionUser{
+		ID:       "password:" + passwordUsername,
+		Username: passwordUsername,
+		Provider: "password",
+	}
+	setSessionCookies(c, user)
+	c.JSON(http.StatusOK, user)
+}
+
+func setSessionCookies(c *gin.Context, user SessionUser) {
+	maxAge := 3600
+	c.SetCookie("auth_token", "", -1, "/", "", enableSSL, true)
+	c.SetCookie("auth_provider", user.Provider, maxAge, "/", "", enableSSL, true)
+	c.SetCookie("user_id", user.ID, maxAge, "/", "", enableSSL, true)
+	c.SetCookie("username", user.Username, maxAge, "/", "", enableSSL, true)
+	c.SetCookie("auth_session", signSession(user), maxAge, "/", "", enableSSL, true)
+}
+
+func clearSessionCookies(c *gin.Context) {
+	for _, name := range []string{"auth_token", "auth_provider", "user_id", "username", "auth_session"} {
+		c.SetCookie(name, "", -1, "/", "", enableSSL, true)
+	}
+}
+
+func sessionFromRequest(c *gin.Context) (SessionUser, bool) {
+	provider, err := c.Cookie("auth_provider")
+	if err != nil {
+		return SessionUser{}, false
+	}
+	userID, err := c.Cookie("user_id")
+	if err != nil {
+		return SessionUser{}, false
+	}
+	username, err := c.Cookie("username")
+	if err != nil {
+		return SessionUser{}, false
+	}
+	signature, err := c.Cookie("auth_session")
+	if err != nil {
+		return SessionUser{}, false
+	}
+	user := SessionUser{ID: userID, Username: username, Provider: provider}
+	return user, hmac.Equal([]byte(signature), []byte(signSession(user)))
+}
+
+func signSession(user SessionUser) string {
+	mac := hmac.New(sha256.New, []byte(sessionSecret()))
+	mac.Write([]byte(user.Provider))
+	mac.Write([]byte{0})
+	mac.Write([]byte(user.ID))
+	mac.Write([]byte{0})
+	mac.Write([]byte(user.Username))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func sessionSecret() string {
+	if secret := os.Getenv("AUTH_SESSION_SECRET"); secret != "" {
+		return secret
+	}
+	return os.Getenv("GITHUB_CLIENT_SECRET") + "\x00" + passwordValue
+}
+
+func authMethods() []string {
+	methods := []string{}
+	if passwordUsername != "" && passwordValue != "" {
+		methods = append(methods, "password")
+	}
+	if githubAuthEnabled {
+		methods = append(methods, "github")
+	}
+	return methods
+}
+
 // 登出处理
 func handleLogout(c *gin.Context) {
 	if !authEnabled {
@@ -287,9 +400,7 @@ func handleLogout(c *gin.Context) {
 	}
 
 	// 清除 cookie
-	c.SetCookie("auth_token", "", -1, "/", "", enableSSL, true)
-	c.SetCookie("user_id", "", -1, "/", "", enableSSL, true)
-	c.SetCookie("username", "", -1, "/", "", enableSSL, true)
+	clearSessionCookies(c)
 
 	logrus.Info("User logged out")
 
@@ -304,24 +415,21 @@ func handleMe(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"id":       "0",
 			"username": "guest",
+			"provider": "guest",
 		})
 		return
 	}
 
-	userID, err := c.Cookie("user_id")
-	if err != nil {
+	user, ok := sessionFromRequest(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "Not authenticated",
+			"error":        "Not authenticated",
+			"auth_methods": authMethods(),
 		})
 		return
 	}
 
-	username, _ := c.Cookie("username")
-
-	c.JSON(http.StatusOK, gin.H{
-		"id":       userID,
-		"username": username,
-	})
+	c.JSON(http.StatusOK, user)
 }
 
 // 认证中间件
@@ -334,8 +442,8 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// 检查 cookie 中的认证信息
-		userID, err := c.Cookie("user_id")
-		if err != nil {
+		user, ok := sessionFromRequest(c)
+		if !ok {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "Not authenticated",
 			})
@@ -344,10 +452,10 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// 检查用户是否在允许列表中（仅 ALLOWED_USER_IDS）
-		if len(allowedUserIDs) > 0 {
+		if user.Provider == "github" && len(allowedUserIDs) > 0 {
 			allowed := false
 			for _, id := range allowedUserIDs {
-				if id == userID {
+				if id == user.ID {
 					allowed = true
 					break
 				}
@@ -355,7 +463,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			if !allowed {
 				c.JSON(http.StatusForbidden, gin.H{
 					"error":   "User not allowed",
-					"user_id": userID,
+					"user_id": user.ID,
 				})
 				c.Abort()
 				return
@@ -363,7 +471,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// 将用户信息存储到上下文中
-		c.Set("userID", userID)
+		c.Set("userID", user.ID)
 		c.Next()
 	}
 }

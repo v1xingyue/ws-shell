@@ -4,7 +4,7 @@
 
 English | [中文](readme.zh-CN.md)
 
-WebSocket-based web terminal with optional GitHub OAuth authentication.
+WebSocket-based web terminal with optional username/password or GitHub OAuth authentication.
 
 ## Features
 
@@ -13,7 +13,7 @@ WebSocket-based web terminal with optional GitHub OAuth authentication.
 - Send keyboard input, receive terminal output, and resize the PTY from the browser.
 - Choose the shell command with `-fork`, for example `/bin/bash`, `/bin/zsh`, or `/bin/sh`.
 - Run in single-user mode by default, or switch users with `?user=username` when multi-user mode is enabled.
-- Protect access with optional GitHub OAuth.
+- Protect access with optional username/password or GitHub OAuth.
 - Restrict login to specific GitHub numeric user IDs with `ALLOWED_USER_IDS`.
 - Load configuration from environment variables or a root `.env` file.
 - Serve with built-in HTTPS locally, or disable app TLS behind a platform HTTPS proxy.
@@ -86,7 +86,18 @@ On first run, `cert.pem` and `key.pem` are generated.
 ./wsterm -fork=/bin/zsh
 ```
 
-### 4. GitHub Authentication
+### 4. Username/Password Authentication
+
+Set both variables to enable basic username/password login:
+
+```bash
+export AUTH_USERNAME=admin
+export AUTH_PASSWORD=change-me
+
+./wsterm
+```
+
+### 5. GitHub Authentication
 
 Set environment variables, or put them in the project root `.env`, then start the server:
 
@@ -113,7 +124,10 @@ The program optionally loads environment variables from `.env` in the current wo
 
 | Variable | Description |
 |---|---|
-| `GITHUB_CLIENT_ID` | GitHub OAuth client ID. Authentication is enabled when both ID and secret are set. |
+| `AUTH_USERNAME` | Username for username/password login. Authentication is enabled when both username and password are set. |
+| `AUTH_PASSWORD` | Password for username/password login. |
+| `AUTH_SESSION_SECRET` | Optional cookie signing secret. Defaults to configured auth secrets. |
+| `GITHUB_CLIENT_ID` | GitHub OAuth client ID. GitHub auth is enabled when both ID and secret are set. |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth client secret |
 | `ALLOWED_USER_IDS` | Comma-separated GitHub user IDs allowed to log in. If unset, any logged-in GitHub user is allowed. |
 | `OAUTH_REDIRECT_URL` | OAuth callback URL. If unset, it is built from the request host. |
@@ -166,15 +180,14 @@ Examples: `ALLOWED_USER_IDS=974169` or `ALLOWED_USER_IDS=12345,67890`.
 
 1. User opens the app.
 2. If not logged in, the login page is shown.
-3. Clicking "Sign in with GitHub" redirects to GitHub.
-4. GitHub redirects back to the app after authorization.
-5. The app checks whether the user ID is in `ALLOWED_USER_IDS`.
-6. If allowed, a cookie is written and the terminal becomes available.
+3. Use username/password, or click "Sign in with GitHub" when GitHub auth is configured.
+4. If allowed, a signed cookie is written and the terminal becomes available.
 
-If `GITHUB_CLIENT_ID` or `GITHUB_CLIENT_SECRET` is not set, the app runs without authentication and `/web` is directly accessible.
+If no authentication environment variables are set, the app runs without authentication and `/web` is directly accessible.
 
 ## API
 
+- `POST /auth/password` - username/password login
 - `GET /auth/github` - start GitHub OAuth
 - `GET /auth/github/callback` - OAuth callback
 - `GET /auth/logout` - log out
@@ -196,7 +209,7 @@ The current GitHub user ID is not in `ALLOWED_USER_IDS`. Add your user ID to the
 
 ## Security Notes
 
-- Do not commit `GITHUB_CLIENT_SECRET`.
+- Do not commit `AUTH_PASSWORD` or `GITHUB_CLIENT_SECRET`.
 - Use HTTPS for OAuth callbacks in production.
 - Rotate the Client Secret regularly.
 - Use `ALLOWED_USER_IDS` to restrict access.
@@ -209,10 +222,12 @@ Use the published image:
 docker run -d --name ws-shell -p 8090:8080 ghcr.io/v1xingyue/ws-shell:main
 ```
 
-Open `http://0.0.0.0:8090/web`. Pass environment variables to enable GitHub authentication:
+Open `http://0.0.0.0:8090/web`. Pass environment variables to enable authentication:
 
 ```bash
 docker run -d --name ws-shell \
+  -e AUTH_USERNAME=admin \
+  -e AUTH_PASSWORD=change-me \
   -e GITHUB_CLIENT_ID=xxx \
   -e GITHUB_CLIENT_SECRET=xxx \
   -e ALLOWED_USER_IDS=12345678 \
