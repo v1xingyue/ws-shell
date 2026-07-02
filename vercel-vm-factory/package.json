@@ -1,7 +1,7 @@
 {
   "name": "vercel-vm-factory",
-  "version": "0.2.8",
-  "description": "Create Vercel Container deployments for ws-shell from selectable base images.",
+  "version": "0.6.8",
+  "description": "Create Vercel Container deployments for ws-shell from selectable VM images.",
   "license": "MIT",
   "type": "module",
   "bin": {

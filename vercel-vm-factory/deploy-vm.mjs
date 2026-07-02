@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -8,7 +8,7 @@ import path from "node:path";
 
 const defaultWsShellImage = "ghcr.io/v1xingyue/ws-shell:v1.8.alpine";
 
-const bases = {
+const vmImages = {
   alpine: "alpine:3.23",
   ubuntu: "ubuntu:24.04",
   debian: "debian:13-slim",
@@ -20,8 +20,13 @@ const workspaceRoot = process.cwd();
 const stateRoot = path.join(homedir(), ".vercel-vm-factory");
 const defaultsPath = path.join(stateRoot, "defaults.json");
 const legacyDefaultsPath = path.join(scriptRoot, ".defaults.json");
-const defaults = {
+const codeDefaults = { "vm-image": "alpine", from: defaultWsShellImage };
+const packagedDefaults = {
   ...(await readDefaults(legacyDefaultsPath)),
+  ...codeDefaults,
+};
+let defaults = {
+  ...packagedDefaults,
   ...(await readDefaults(defaultsPath)),
 };
 const colorEnabled = output.isTTY && !process.env.NO_COLOR;
@@ -57,6 +62,7 @@ try {
 
 async function main() {
   printHeader();
+  defaults = await syncDefaults();
   await ensureVercelInstalled();
   await ensureVercelLogin();
 
@@ -65,8 +71,10 @@ async function main() {
     return;
   }
 
-  const baseName = await chooseBase(args.base ?? defaults.base ?? "alpine");
-  const baseImage = bases[baseName] ?? baseName;
+  const vmImageName = await chooseVmImage(
+    args["vm-image"] ?? args.base ?? defaults["vm-image"] ?? "alpine",
+  );
+  const vmImage = vmImages[vmImageName] ?? vmImageName;
   const scope = await optionalValue(
     "scope",
     "Vercel team/scope",
@@ -75,7 +83,7 @@ async function main() {
   const project = await value(
     "project",
     "Vercel project name",
-    defaults.project ?? `ws-shell-${baseName}`,
+    defaults.project ?? `ws-shell-${vmImageName}`,
   );
   const wsShellImage =
     args.from ??
@@ -99,14 +107,14 @@ async function main() {
     ".generated",
     project,
   );
-  const dockerfile = makeDockerfile({ baseImage, wsShellImage });
+  const dockerfile = makeDockerfile({ vmImage, wsShellImage });
 
   await rm(appDir, { recursive: true, force: true });
   await mkdir(appDir, { recursive: true });
   await writeFile(path.join(appDir, "Dockerfile.vercel"), dockerfile);
 
   printSummary({
-    base: `${baseName} -> ${baseImage}`,
+    "vm image": `${vmImageName} -> ${vmImage}`,
     project,
     scope: scope || "default",
     source: wsShellImage,
@@ -161,7 +169,7 @@ async function main() {
 
   await writeDefaults(defaultsPath, {
     ...defaults,
-    base: baseName,
+    "vm-image": vmImageName,
     scope: scope || undefined,
     project,
     from: wsShellImage,
@@ -307,7 +315,7 @@ async function doctor() {
   console.log("");
   console.log(color.bold("Saved defaults"));
   printKeyValue("defaults file", defaultsPath);
-  printKeyValue("base", defaults.base || "not set");
+  printKeyValue("vm image", defaults["vm-image"] || "not set");
   printKeyValue("project", defaults.project || "not set");
   printKeyValue("scope", defaults.scope || "not set");
   printKeyValue("source image", defaults.from || defaultWsShellImage);
@@ -334,12 +342,12 @@ async function doctor() {
   );
 }
 
-function makeDockerfile({ baseImage, wsShellImage }) {
+function makeDockerfile({ vmImage, wsShellImage }) {
   return `ARG WS_SHELL_IMAGE=${wsShellImage}
-ARG BASE_IMAGE=${baseImage}
+ARG VM_IMAGE=${vmImage}
 
 FROM \${WS_SHELL_IMAGE} AS ws-shell
-FROM \${BASE_IMAGE} AS base
+FROM \${VM_IMAGE} AS vm
 
 # wsterm already embeds the web UI; runtime config comes from environment variables.
 COPY --from=ws-shell /app/bin/wsterm /app/bin/wsterm
@@ -443,28 +451,33 @@ function usesGitHubAuth(mode) {
   return mode === "github" || mode === "both";
 }
 
-async function chooseBase(fallback) {
+async function chooseVmImage(fallback) {
+  if (args["vm-image"]) return args["vm-image"];
   if (args.base) return args.base;
   if (!input.isTTY) return fallback;
 
-  const names = Object.keys(bases);
-  console.log(color.bold("Choose base image"));
+  const names = Object.keys(vmImages);
+  console.log(color.bold("Choose VM image"));
   names.forEach((name, index) =>
     console.log(
-      `  ${color.cyan(String(index + 1))}. ${name} ${color.dim(`(${bases[name]})`)}`,
+      `  ${color.cyan(String(index + 1))}. ${name} ${color.dim(`(${vmImages[name]})`)}`,
     ),
   );
   console.log(`  ${color.cyan("4")}. custom image`);
 
   const rl = createInterface({ input, output });
-  const answer = (await rl.question(`Base [${fallback}]: `)).trim();
+  const answer = (await rl.question(`VM image [${fallback}]: `)).trim();
   rl.close();
 
   if (!answer) return fallback;
-  if (bases[answer]) return answer;
+  if (vmImages[answer]) return answer;
   if (/^[1-3]$/.test(answer)) return names[Number(answer) - 1];
   if (answer === "4")
-    return value("custom-base", "Custom base image", defaults["custom-base"]);
+    return value(
+      "custom-vm-image",
+      "Custom VM image",
+      defaults["custom-vm-image"],
+    );
   return answer;
 }
 
@@ -476,12 +489,55 @@ async function readDefaults(file) {
   }
 }
 
-async function writeDefaults(file, data) {
-  const clean = Object.fromEntries(
-    Object.entries(data).filter(([, value]) => value),
+async function syncDefaults() {
+  const current = await readDefaults(defaultsPath);
+  const codeMtime = Math.max(
+    await readMtime(import.meta.filename),
+    await readMtime(legacyDefaultsPath),
   );
+  const homeMtime = await readMtime(defaultsPath);
+  const latest =
+    homeMtime > codeMtime
+      ? { ...packagedDefaults, ...current }
+      : { ...current, ...packagedDefaults };
+
+  if (
+    JSON.stringify(cleanDefaults(current)) !==
+    JSON.stringify(cleanDefaults(latest))
+  )
+    await writeDefaults(defaultsPath, latest);
+  return cleanDefaults(latest);
+}
+
+async function readMtime(file) {
+  try {
+    return (await stat(file)).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+async function writeDefaults(file, data) {
+  const clean = cleanDefaults(data);
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, `${JSON.stringify(clean, null, 2)}\n`);
+}
+
+function cleanDefaults(data) {
+  const migrated = {
+    ...data,
+    "vm-image": data["vm-image"] ?? data.base,
+    "custom-vm-image": data["custom-vm-image"] ?? data["custom-base"],
+  };
+  delete migrated.base;
+  delete migrated["custom-base"];
+
+  const clean = Object.fromEntries(
+    Object.entries(migrated).filter(([, value]) => value),
+  );
+  return Object.fromEntries(
+    Object.entries(clean).sort(([a], [b]) => a.localeCompare(b)),
+  );
 }
 
 function mask(value) {
@@ -640,12 +696,13 @@ function printHelp() {
   printHeader();
   console.log(`Usage:
   vercel-vm-factory create
-  vercel-vm-factory create --base ubuntu --project x-shell
+  vercel-vm-factory create --vm-image ubuntu --project x-shell
   vercel-vm-factory doctor
   npx vercel-vm-factory create
 
 Options:
-  --base NAME          alpine, ubuntu, debian, or a custom image
+  --vm-image NAME      alpine, ubuntu, debian, or a custom VM image
+  --base NAME          Alias for --vm-image
   --project NAME       Vercel project name
   --scope SLUG         Optional Vercel team/user scope slug
   --from IMAGE         Source image for /app/bin/wsterm

@@ -1,10 +1,10 @@
 # Vercel VM Factory
 
-Create a tiny Vercel Container deployment: copy `wsterm` from `ghcr.io/v1xingyue/ws-shell:v1.8.alpine` into a selected base image, then deploy with Vercel CLI.
+Create a tiny Vercel Container deployment: copy `wsterm` from `ghcr.io/v1xingyue/ws-shell:v1.8.alpine` into a selected VM image, then deploy with Vercel CLI.
 
 ```bash
 npx vercel-vm-factory create \
-  --base ubuntu \
+  --vm-image ubuntu \
   --project ws-shell-ubuntu \
   --auth-mode basic \
   --auth-user admin \
@@ -50,16 +50,16 @@ CLI mapping:
 - Application Preset -> patched through Vercel API as `framework=container`
 - Root Directory -> generated project directory
 
-Base presets:
+VM image presets:
 
 - `alpine` -> `alpine:3.23`
 - `ubuntu` -> `ubuntu:24.04`
 - `debian` -> `debian:13-slim`
 
-Custom base:
+Custom VM image:
 
 ```bash
-npx vercel-vm-factory create --base fedora:42 --project ws-shell-fedora
+npx vercel-vm-factory create --vm-image fedora:42 --project ws-shell-fedora
 ```
 
 Before deploying, set the GitHub OAuth callback URL to:
