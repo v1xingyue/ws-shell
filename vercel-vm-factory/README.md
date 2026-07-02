@@ -5,6 +5,7 @@ Create a tiny Vercel Container deployment: copy `wsterm` from `ghcr.io/v1xingyue
 ```bash
 npx vercel-vm-factory create \
   --vm-image ubuntu \
+  --shell /bin/bash \
   --project ws-shell-ubuntu \
   --auth-mode basic \
   --auth-user admin \
@@ -55,6 +56,12 @@ VM image presets:
 - `alpine` -> `alpine:3.23`
 - `ubuntu` -> `ubuntu:24.04`
 - `debian` -> `debian:13-slim`
+
+Shell options:
+
+- `/bin/bash`
+- `/bin/zsh`
+- `/bin/sh`
 
 Custom VM image:
 

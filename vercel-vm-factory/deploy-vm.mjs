@@ -13,6 +13,7 @@ const vmImages = {
   ubuntu: "ubuntu:24.04",
   debian: "debian:13-slim",
 };
+const shells = ["/bin/bash", "/bin/zsh", "/bin/sh"];
 
 const { command, args } = parseCommand(process.argv.slice(2));
 const scriptRoot = path.resolve(import.meta.dirname);
@@ -20,7 +21,11 @@ const workspaceRoot = process.cwd();
 const stateRoot = path.join(homedir(), ".vercel-vm-factory");
 const defaultsPath = path.join(stateRoot, "defaults.json");
 const legacyDefaultsPath = path.join(scriptRoot, ".defaults.json");
-const codeDefaults = { "vm-image": "alpine", from: defaultWsShellImage };
+const codeDefaults = {
+  "vm-image": "alpine",
+  from: defaultWsShellImage,
+  shell: "/bin/sh",
+};
 const packagedDefaults = {
   ...(await readDefaults(legacyDefaultsPath)),
   ...codeDefaults,
@@ -90,6 +95,7 @@ async function main() {
     process.env.WS_SHELL_IMAGE ??
     defaults.from ??
     defaultWsShellImage;
+  const shell = await chooseShell(args.shell ?? defaults.shell ?? "/bin/sh");
   const prod = args.prod !== "false";
   const dryRun = Boolean(args["dry-run"]);
   const skipLink = Boolean(args["skip-link"]);
@@ -107,7 +113,7 @@ async function main() {
     ".generated",
     project,
   );
-  const dockerfile = makeDockerfile({ vmImage, wsShellImage });
+  const dockerfile = makeDockerfile({ shell, vmImage, wsShellImage });
 
   await rm(appDir, { recursive: true, force: true });
   await mkdir(appDir, { recursive: true });
@@ -118,6 +124,7 @@ async function main() {
     project,
     scope: scope || "default",
     source: wsShellImage,
+    shell,
     auth: authMode,
     ...(usesGitHubAuth(authMode) ? { callback: oauthRedirectUrl } : {}),
     dockerfile: path.join(appDir, "Dockerfile.vercel"),
@@ -173,6 +180,7 @@ async function main() {
     scope: scope || undefined,
     project,
     from: wsShellImage,
+    shell,
     "auth-mode": authMode,
     "auth-user": authUsername,
     "auth-password": authPassword,
@@ -272,15 +280,12 @@ async function installVercelCli() {
     );
 
   const install = await choosePackageInstall();
-  const rl = createInterface({ input, output });
   const answer = (
-    await rl.question(
-      `Vercel CLI is not installed. Install it with "${install.command} ${install.args.join(" ")}"? [y/N]: `,
+    await askText(
+      `Vercel CLI is not installed. Install with ${install.command} ${install.args.join(" ")}?`,
+      "N",
     )
-  )
-    .trim()
-    .toLowerCase();
-  rl.close();
+  ).toLowerCase();
 
   if (answer !== "y" && answer !== "yes")
     throw new Error("Vercel CLI is required. Exiting.");
@@ -319,6 +324,7 @@ async function doctor() {
   printKeyValue("project", defaults.project || "not set");
   printKeyValue("scope", defaults.scope || "not set");
   printKeyValue("source image", defaults.from || defaultWsShellImage);
+  printKeyValue("shell", defaults.shell || "/bin/sh");
   printKeyValue("auth mode", defaults["auth-mode"] || "not set");
   printKeyValue(
     "auth user",
@@ -342,7 +348,7 @@ async function doctor() {
   );
 }
 
-function makeDockerfile({ vmImage, wsShellImage }) {
+function makeDockerfile({ shell, vmImage, wsShellImage }) {
   return `ARG WS_SHELL_IMAGE=${wsShellImage}
 ARG VM_IMAGE=${vmImage}
 
@@ -355,7 +361,7 @@ COPY --from=ws-shell /app/bin/wsterm /app/bin/wsterm
 WORKDIR /app
 ENV ENABLE_SSL=false
 EXPOSE 80
-CMD ["/app/bin/wsterm","-bind",":80","-fork","/bin/sh"]
+CMD ["/app/bin/wsterm","-bind",":80","-fork","${shell}"]
 `;
 }
 
@@ -364,11 +370,7 @@ async function value(name, question, fallback) {
   if (args[name]) return args[name];
   if (!input.isTTY) return current || "";
 
-  const rl = createInterface({ input, output });
-  const answer = (
-    await rl.question(`${question}${fallback ? ` [${fallback}]` : ""}: `)
-  ).trim();
-  rl.close();
+  const answer = await askText(question, fallback);
   return answer || current || "";
 }
 
@@ -376,10 +378,8 @@ async function secret(name, question, fallback) {
   if (args[name]) return args[name];
   if (!input.isTTY) return fallback || "";
 
-  const rl = createInterface({ input, output });
   const placeholder = fallback ? mask(fallback) : "skip";
-  const answer = (await rl.question(`${question} [${placeholder}]: `)).trim();
-  rl.close();
+  const answer = await askText(question, placeholder);
   return answer || fallback || "";
 }
 
@@ -387,10 +387,10 @@ async function optionalValue(name, question, fallback) {
   if (args[name] !== undefined) return args[name];
   if (!input.isTTY) return "";
 
-  const rl = createInterface({ input, output });
-  const suffix = fallback ? ` [${fallback}; Enter to skip]` : " [skip]";
-  const answer = (await rl.question(`${question}${suffix}: `)).trim();
-  rl.close();
+  const answer = await askText(
+    question,
+    fallback ? `${fallback}; Enter to skip` : "skip",
+  );
   return answer;
 }
 
@@ -424,15 +424,14 @@ async function chooseAuthMode(fallback) {
   }
   if (!input.isTTY) return modes.has(fallback) ? fallback : "basic";
 
-  console.log(color.bold("Choose authentication"));
-  console.log(`  ${color.cyan("1")}. basic username/password`);
-  console.log(`  ${color.cyan("2")}. GitHub OAuth`);
-  console.log(`  ${color.cyan("3")}. both`);
-  console.log(`  ${color.cyan("4")}. none`);
+  printChoices("Authentication", [
+    ["1", "basic", "username/password"],
+    ["2", "github", "GitHub OAuth"],
+    ["3", "both", "basic + GitHub OAuth"],
+    ["4", "none", "no app auth"],
+  ]);
 
-  const rl = createInterface({ input, output });
-  const answer = (await rl.question(`Authentication [${fallback}]: `)).trim();
-  rl.close();
+  const answer = await askText("Authentication", fallback);
 
   if (!answer) return modes.has(fallback) ? fallback : "basic";
   if (modes.has(answer)) return answer;
@@ -457,17 +456,16 @@ async function chooseVmImage(fallback) {
   if (!input.isTTY) return fallback;
 
   const names = Object.keys(vmImages);
-  console.log(color.bold("Choose VM image"));
-  names.forEach((name, index) =>
-    console.log(
-      `  ${color.cyan(String(index + 1))}. ${name} ${color.dim(`(${vmImages[name]})`)}`,
-    ),
+  printChoices(
+    "VM image",
+    names.map((name, index) => [
+      String(index + 1),
+      name,
+      vmImages[name],
+    ]).concat([["4", "custom", "enter a full image name"]]),
   );
-  console.log(`  ${color.cyan("4")}. custom image`);
 
-  const rl = createInterface({ input, output });
-  const answer = (await rl.question(`VM image [${fallback}]: `)).trim();
-  rl.close();
+  const answer = await askText("VM image", fallback);
 
   if (!answer) return fallback;
   if (vmImages[answer]) return answer;
@@ -478,6 +476,27 @@ async function chooseVmImage(fallback) {
       "Custom VM image",
       defaults["custom-vm-image"],
     );
+  return answer;
+}
+
+async function chooseShell(fallback) {
+  if (args.shell) return args.shell;
+  if (!input.isTTY) return fallback;
+
+  printChoices(
+    "Shell",
+    shells.map((shell, index) => [
+      String(index + 1),
+      shell,
+      index === shells.length - 1 ? "default" : "",
+    ]),
+  );
+
+  const answer = await askText("Shell", fallback);
+
+  if (!answer) return fallback;
+  if (shells.includes(answer)) return answer;
+  if (/^[1-3]$/.test(answer)) return shells[Number(answer) - 1];
   return answer;
 }
 
@@ -638,18 +657,30 @@ function findLastUrl(text) {
 }
 
 function printHeader() {
-  console.log(color.bold(color.cyan("Vercel VM Factory")));
-  console.log(
-    color.dim("Build a Container deployment from a tiny Dockerfile.vercel"),
-  );
+  console.log("");
+  console.log(color.cyan(" __     ____  __   _____           _                   "));
+  console.log(color.cyan(" \\ \\   / /  \\/  | |  ___|_ _  ___| |_ ___  _ __ _   _ "));
+  console.log(color.cyan("  \\ \\ / /| |\\/| | | |_ / _` |/ __| __/ _ \\| '__| | | |"));
+  console.log(color.cyan("   \\ V / | |  | | |  _| (_| | (__| || (_) | |  | |_| |"));
+  console.log(color.cyan("    \\_/  |_|  |_| |_|  \\__,_|\\___|\\__\\___/|_|   \\__, |"));
+  console.log(color.cyan("                                                 |___/ "));
+  console.log(color.dim("        Vercel Container VM deployment helper"));
   console.log("");
 }
 
 function printSummary(items) {
+  const entries = Object.entries(items);
+  const keyWidth = Math.max(...entries.map(([key]) => key.length), 1);
+  const valueWidth = Math.max(...entries.map(([, value]) => String(value).length), 1);
+  const width = keyWidth + valueWidth + 5;
+
   console.log(color.bold("Deployment plan"));
+  console.log(color.cyan(`+${"-".repeat(width)}+`));
   for (const [key, value] of Object.entries(items)) {
-    printKeyValue(key, value);
+    const line = `${key.padEnd(keyWidth)}  ${String(value).padEnd(valueWidth)}`;
+    console.log(`${color.cyan("|")} ${line} ${color.cyan("|")}`);
   }
+  console.log(color.cyan(`+${"-".repeat(width)}+`));
   console.log("");
 }
 
@@ -674,6 +705,28 @@ function printOAuthGuide(callbackUrl) {
 
 function printKeyValue(key, value) {
   console.log(`${color.dim(`${key.padEnd(14)} `)}${value}`);
+}
+
+async function askText(question, fallback = "") {
+  const suffix = fallback ? color.dim(` [${fallback}]`) : "";
+  const rl = createInterface({ input, output });
+  const answer = (
+    await rl.question(
+      `${color.cyan("?")} ${color.bold(question)}${suffix}\n${color.dim("> ")} `,
+    )
+  ).trim();
+  rl.close();
+  return answer;
+}
+
+function printChoices(title, choices) {
+  console.log("");
+  console.log(color.bold(title));
+  for (const [key, label, detail] of choices) {
+    const hint = detail ? ` ${color.dim(detail)}` : "";
+    console.log(`  ${color.cyan(key)}  ${label}${hint}`);
+  }
+  console.log("");
 }
 
 function step(text) {
@@ -706,6 +759,7 @@ Options:
   --project NAME       Vercel project name
   --scope SLUG         Optional Vercel team/user scope slug
   --from IMAGE         Source image for /app/bin/wsterm
+  --shell PATH         /bin/bash, /bin/zsh, or /bin/sh
   --auth-mode MODE     basic, github, both, or none
   --auth-user VALUE    Username/password auth user
   --auth-password VAL  Username/password auth password
