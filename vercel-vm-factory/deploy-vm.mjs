@@ -187,43 +187,30 @@ async function main() {
       )
     : "";
 
-  await writeDefaults(defaultsPath, {
-    ...defaults,
-    "vm-image": vmImageName,
-    scope: scope || undefined,
-    project,
-    from: wsShellImage,
-    shell,
-    tools,
-    "auth-mode": authMode,
-    "auth-user": authUsername,
-    "auth-password": authPassword,
-    "client-id": githubClientId,
-    "client-secret": githubClientSecret,
-    "github-userid": allowedUserIds,
-  });
-
-  const commonArgs = [];
-  if (args.token) commonArgs.push("--token", args.token);
-  if (scope) commonArgs.push("--scope", scope);
+  let activeScope = scope;
+  const commonArgs = () => makeCommonArgs(activeScope);
 
   if (!skipLink) {
     step("Linking Vercel project");
-    await runNoUrl("vercel", [
-      "link",
-      "--yes",
-      "--project",
-      project,
-      "--cwd",
-      appDir,
-      ...commonArgs,
-    ]);
+    await withScopeFallback(activeScope, async () =>
+      runNoUrl("vercel", [
+        "link",
+        "--yes",
+        "--project",
+        project,
+        "--cwd",
+        appDir,
+        ...commonArgs(),
+      ]),
+    );
   } else {
     warn("skip-link enabled; using existing .vercel/project.json");
   }
 
   step("Setting project framework=container");
-  await setContainerFramework(appDir, commonArgs);
+  await withScopeFallback(activeScope, async () =>
+    setContainerFramework(appDir, commonArgs()),
+  );
 
   const vercelArgs = ["deploy", appDir, "--yes", "--logs"];
 
@@ -238,13 +225,40 @@ async function main() {
   if (allowedUserIds)
     vercelArgs.push("--env", `ALLOWED_USER_IDS=${allowedUserIds}`);
   if (prod) vercelArgs.push("--prod");
-  vercelArgs.push(...commonArgs);
 
   step("Deploying");
-  const deploymentUrl = await run("vercel", vercelArgs);
+  const deploymentUrl = await withScopeFallback(activeScope, async () =>
+    run("vercel", [...vercelArgs, ...commonArgs()]),
+  );
+  await writeDefaults(defaultsPath, {
+    ...defaults,
+    "vm-image": vmImageName,
+    scope: activeScope || undefined,
+    project,
+    from: wsShellImage,
+    shell,
+    tools,
+    "auth-mode": authMode,
+    "auth-user": authUsername,
+    "auth-password": authPassword,
+    "client-id": githubClientId,
+    "client-secret": githubClientSecret,
+    "github-userid": allowedUserIds,
+  });
   console.log(
     `\n${color.green("Deployment URL:")} ${color.bold(deploymentUrl)}`,
   );
+
+  async function withScopeFallback(scopeValue, action) {
+    try {
+      return await action();
+    } catch (error) {
+      if (!scopeValue || !isMissingScope(error)) throw error;
+      warn(`scope "${scopeValue}" not found; retrying with default Vercel scope`);
+      activeScope = "";
+      return action();
+    }
+  }
 }
 
 async function setContainerFramework(appDir, commonArgs) {
@@ -713,23 +727,37 @@ function parseCommand(argv) {
   return { command: "create", args: parseArgs(argv) };
 }
 
+function makeCommonArgs(scope) {
+  const commonArgs = [];
+  if (args.token) commonArgs.push("--token", args.token);
+  if (scope) commonArgs.push("--scope", scope);
+  return commonArgs;
+}
+
+function isMissingScope(error) {
+  return String(error?.message || error).includes("scope does not exist");
+}
+
 function run(command, commandArgs) {
   return new Promise((resolve, reject) => {
     let seenUrl = "";
+    let text = "";
     const child = spawn(command, commandArgs, {
       stdio: ["inherit", "pipe", "pipe"],
     });
 
     child.stdout.on("data", (chunk) => {
-      const text = chunk.toString();
-      output.write(text);
-      seenUrl = findLastUrl(text) || seenUrl;
+      const chunkText = chunk.toString();
+      text += chunkText;
+      output.write(chunkText);
+      seenUrl = findLastUrl(chunkText) || seenUrl;
     });
 
     child.stderr.on("data", (chunk) => {
-      const text = chunk.toString();
-      output.write(text);
-      seenUrl = findLastUrl(text) || seenUrl;
+      const chunkText = chunk.toString();
+      text += chunkText;
+      output.write(chunkText);
+      seenUrl = findLastUrl(chunkText) || seenUrl;
     });
 
     child.on("error", reject);
@@ -737,7 +765,7 @@ function run(command, commandArgs) {
       if (code === 0 && seenUrl) resolve(seenUrl);
       else if (code === 0)
         reject(new Error("vercel finished but no deployment url was found"));
-      else reject(new Error(`vercel exited with code ${code}`));
+      else reject(new Error(text.trim() || `vercel exited with code ${code}`));
     });
   });
 }
@@ -765,11 +793,24 @@ function runCapture(command, commandArgs) {
 
 function runNoUrl(command, commandArgs) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, commandArgs, { stdio: "inherit" });
+    let text = "";
+    const child = spawn(command, commandArgs, {
+      stdio: ["inherit", "pipe", "pipe"],
+    });
+    child.stdout.on("data", (chunk) => {
+      const chunkText = chunk.toString();
+      text += chunkText;
+      output.write(chunkText);
+    });
+    child.stderr.on("data", (chunk) => {
+      const chunkText = chunk.toString();
+      text += chunkText;
+      output.write(chunkText);
+    });
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`${command} exited with code ${code}`));
+      else reject(new Error(text.trim() || `${command} exited with code ${code}`));
     });
   });
 }
