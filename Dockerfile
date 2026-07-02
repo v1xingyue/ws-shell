@@ -3,7 +3,7 @@ COPY ./web /web
 WORKDIR /web
 RUN npm install && npm run build
 
-FROM 1.25.11-alpine3.23 as builder
+FROM golang:1.25.11-alpine3.23 as builder
 RUN apk update
 RUN apk add --no-cache git make
 COPY . /wsterm
