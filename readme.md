@@ -4,7 +4,7 @@
 
 English | [中文](readme.zh-CN.md)
 
-WebSocket-based web terminal with optional username/password or GitHub OAuth authentication.
+WebSocket-based web terminal with optional username/password or GitHub OAuth authentication. Login sessions last two weeks.
 
 ## Features
 
@@ -13,7 +13,7 @@ WebSocket-based web terminal with optional username/password or GitHub OAuth aut
 - Send keyboard input, receive terminal output, and resize the PTY from the browser.
 - Choose the shell command with `-fork`, for example `/bin/bash`, `/bin/zsh`, or `/bin/sh`.
 - Run in single-user mode by default, or switch users with `?user=username` when multi-user mode is enabled.
-- Protect access with optional username/password or GitHub OAuth.
+- Protect access with optional username/password or GitHub OAuth; both use a signed two-week browser session.
 - Restrict login to specific GitHub numeric user IDs with `ALLOWED_USER_IDS`.
 - Load configuration from environment variables or a root `.env` file.
 - Serve with built-in HTTPS locally, or disable app TLS behind a platform HTTPS proxy.
@@ -32,7 +32,9 @@ That gives you:
 - A browser terminal at `https://YOUR_DEPLOYMENT/web`.
 - WebSocket terminal sessions backed by `/bin/sh` inside the deployed Alpine container.
 - HTTPS at the public URL, with app-level SSL disabled because the platform terminates TLS.
-- Optional GitHub OAuth protection through Vercel environment variables:
+- Optional username/password or GitHub OAuth protection through Vercel environment variables:
+  - `AUTH_USERNAME`
+  - `AUTH_PASSWORD`
   - `GITHUB_CLIENT_ID`
   - `GITHUB_CLIENT_SECRET`
   - `ALLOWED_USER_IDS`
@@ -97,6 +99,8 @@ export AUTH_PASSWORD=change-me
 ./wsterm
 ```
 
+After login, the signed browser session is valid for 14 days.
+
 ### 5. GitHub Authentication
 
 Set environment variables, or put them in the project root `.env`, then start the server:
@@ -108,6 +112,8 @@ export ALLOWED_USER_IDS=12345678,87654321  # optional: only allow these user IDs
 
 ./wsterm
 ```
+
+After GitHub login, the signed browser session is valid for 14 days.
 
 Combined example:
 
@@ -121,6 +127,14 @@ export ALLOWED_USER_IDS=12345678
 ## Environment Variables
 
 The program optionally loads environment variables from `.env` in the current working directory.
+
+Configuration methods:
+
+- Shell: `export AUTH_USERNAME=admin` before starting `./wsterm`.
+- `.env`: put the same `KEY=value` lines in the project root.
+- Docker: pass variables with `-e KEY=value`.
+- Vercel: add the same variables in Project Settings -> Environment Variables.
+- `vercel-vm-factory`: use `--auth-mode basic|github|both|none` and the auth flags.
 
 | Variable | Description |
 |---|---|

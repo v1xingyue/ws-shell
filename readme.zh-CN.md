@@ -4,7 +4,7 @@
 
 [English](readme.md) | 中文
 
-基于 WebSocket 的网页终端，支持可选的用户名密码或 GitHub OAuth 认证。
+基于 WebSocket 的网页终端，支持可选的用户名密码或 GitHub OAuth 认证。登录态有效期为两周。
 
 ## 功能
 
@@ -13,7 +13,7 @@
 - 支持键盘输入、终端输出和浏览器侧窗口大小同步。
 - 可用 `-fork` 指定 shell，例如 `/bin/bash`、`/bin/zsh` 或 `/bin/sh`。
 - 默认单用户模式；开启多用户模式后可用 `?user=username` 切换系统用户。
-- 支持可选用户名密码或 GitHub OAuth 访问保护。
+- 支持可选用户名密码或 GitHub OAuth 访问保护；两种方式都会写入两周有效的签名登录态。
 - 支持用 `ALLOWED_USER_IDS` 按 GitHub 数字用户 ID 限制登录。
 - 支持从环境变量或根目录 `.env` 加载配置。
 - 本地可用内置 HTTPS；放在平台 HTTPS 代理后也可关闭应用内 TLS。
@@ -99,6 +99,8 @@ export AUTH_PASSWORD=change-me
 ./wsterm
 ```
 
+登录成功后，浏览器里的签名登录态有效期为 14 天。
+
 ### 5. GitHub 授权
 
 设置环境变量，或写入项目根目录 `.env` 后启动：
@@ -110,6 +112,8 @@ export ALLOWED_USER_IDS=12345678,87654321  # 可选：仅允许这些用户 ID
 
 ./wsterm
 ```
+
+GitHub 登录成功后，浏览器里的签名登录态有效期为 14 天。
 
 组合示例：
 
@@ -123,6 +127,14 @@ export ALLOWED_USER_IDS=12345678
 ## 环境变量
 
 程序会从**当前工作目录**的 `.env` 加载环境变量（可选）。
+
+配置方法：
+
+- Shell：启动前执行 `export AUTH_USERNAME=admin`。
+- `.env`：在项目根目录写入同样的 `KEY=value`。
+- Docker：用 `-e KEY=value` 传入。
+- Vercel：在 Project Settings -> Environment Variables 添加同名变量。
+- `vercel-vm-factory`：使用 `--auth-mode basic|github|both|none` 以及对应认证参数。
 
 | 变量 | 说明 |
 |---|---|

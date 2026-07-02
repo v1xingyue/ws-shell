@@ -6,6 +6,7 @@ Create a tiny Vercel Container deployment: copy `wsterm` from `ghcr.io/v1xingyue
 npx vercel-vm-factory create \
   --base ubuntu \
   --project ws-shell-ubuntu \
+  --auth-mode basic \
   --auth-user admin \
   --auth-password change-me
 ```
@@ -14,6 +15,7 @@ GitHub OAuth is optional:
 
 ```bash
 npx vercel-vm-factory create \
+  --auth-mode github \
   --client-id YOUR_GITHUB_CLIENT_ID \
   --client-secret YOUR_GITHUB_CLIENT_SECRET \
   --github-userid 12345678
@@ -24,6 +26,8 @@ Run without flags for prompts:
 ```bash
 npx vercel-vm-factory create
 ```
+
+The prompt asks for authentication first: `basic`, `github`, `both`, or `none`, then only asks for the fields that mode needs.
 
 Check local setup:
 
@@ -72,6 +76,7 @@ https://x-shell.vercel.app/auth/github/callback
 
 GitHub OAuth fields:
 
+- Auth mode -> `--auth-mode basic|github|both|none`
 - Username -> `--auth-user`
 - Password -> `--auth-password`
 - Client ID -> `--client-id`
