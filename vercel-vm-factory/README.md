@@ -6,6 +6,7 @@ Create a tiny Vercel Container deployment: copy `wsterm` from `ghcr.io/v1xingyue
 npx vercel-vm-factory create \
   --vm-image ubuntu \
   --shell /bin/bash \
+  --tools nodejs,codex \
   --project ws-shell-ubuntu \
   --auth-mode basic \
   --auth-user admin \
@@ -28,7 +29,7 @@ Run without flags for prompts:
 npx vercel-vm-factory create
 ```
 
-The prompt asks for authentication first: `basic`, `github`, `both`, or `none`, then only asks for the fields that mode needs.
+The prompt walks through VM image, project, shell, optional preinstalled tools, and authentication. For list prompts, enter either names or numbers; tool choices can be comma-separated, for example `1,3` or `nodejs,claude-code`.
 
 Check local setup:
 
@@ -39,6 +40,16 @@ npx vercel-vm-factory doctor
 The script checks `vercel --version` and `vercel whoami`; if you are not logged in, it runs `vercel login`.
 
 Use `--help` to show all flags.
+
+Common flags:
+
+- `--vm-image alpine|ubuntu|debian|IMAGE`
+- `--shell /bin/bash|/bin/zsh|/bin/sh`
+- `--tools nodejs,codex,claude-code`
+- `--project NAME`
+- `--scope TEAM_SLUG`
+- `--auth-mode basic|github|both|none`
+- `--dry-run`
 
 Entered auth values are reused from `~/.vercel-vm-factory/defaults.json`; press Enter to keep the placeholder value or skip an empty one.
 
@@ -63,7 +74,28 @@ Shell options:
 - `/bin/zsh`
 - `/bin/sh`
 
-Choosing bash or zsh adds the matching package to the generated Dockerfile when the VM image does not already include it.
+Choosing bash or zsh adds the matching package to the generated Dockerfile when the VM image does not already include it. Choosing zsh also installs oh-my-zsh.
+
+Generated shell setup examples:
+
+- Alpine + `/bin/zsh`: installs `zsh curl git`, then installs oh-my-zsh unattended.
+- Ubuntu/Debian + `/bin/bash`: installs `bash` with `apt-get`.
+- `/bin/sh`: no extra shell package is installed.
+
+Preinstall tools:
+
+- `nodejs`
+- `codex`
+- `claude-code`
+
+Choosing codex or claude-code also installs Node.js/npm.
+
+Generated tool setup examples:
+
+- `--tools nodejs`: installs `nodejs npm`
+- `--tools codex`: installs `nodejs npm`, then `npm install -g @openai/codex`
+- `--tools claude-code`: installs `nodejs npm`, then `npm install -g @anthropic-ai/claude-code`
+- `--tools codex,claude-code`: installs both CLIs
 
 Custom VM image:
 

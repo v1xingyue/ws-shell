@@ -14,6 +14,11 @@ const vmImages = {
   debian: "debian:13-slim",
 };
 const shells = ["/bin/bash", "/bin/zsh", "/bin/sh"];
+const toolChoices = {
+  nodejs: "Node.js + npm",
+  codex: "OpenAI Codex CLI",
+  "claude-code": "Claude Code",
+};
 
 const { command, args } = parseCommand(process.argv.slice(2));
 const scriptRoot = path.resolve(import.meta.dirname);
@@ -96,6 +101,7 @@ async function main() {
     defaults.from ??
     defaultWsShellImage;
   const shell = await chooseShell(args.shell ?? defaults.shell ?? "/bin/sh");
+  const tools = await chooseTools(args.tools ?? defaults.tools ?? "");
   const prod = args.prod !== "false";
   const dryRun = Boolean(args["dry-run"]);
   const skipLink = Boolean(args["skip-link"]);
@@ -115,6 +121,7 @@ async function main() {
   );
   const dockerfile = makeDockerfile({
     shell,
+    tools,
     vmImage,
     vmImageName,
     wsShellImage,
@@ -130,6 +137,7 @@ async function main() {
     scope: scope || "default",
     source: wsShellImage,
     shell,
+    tools: tools || "none",
     auth: authMode,
     ...(usesGitHubAuth(authMode) ? { callback: oauthRedirectUrl } : {}),
     dockerfile: path.join(appDir, "Dockerfile.vercel"),
@@ -186,6 +194,7 @@ async function main() {
     project,
     from: wsShellImage,
     shell,
+    tools,
     "auth-mode": authMode,
     "auth-user": authUsername,
     "auth-password": authPassword,
@@ -330,6 +339,7 @@ async function doctor() {
   printKeyValue("scope", defaults.scope || "not set");
   printKeyValue("source image", defaults.from || defaultWsShellImage);
   printKeyValue("shell", defaults.shell || "/bin/sh");
+  printKeyValue("tools", defaults.tools || "none");
   printKeyValue("auth mode", defaults["auth-mode"] || "not set");
   printKeyValue(
     "auth user",
@@ -353,14 +363,22 @@ async function doctor() {
   );
 }
 
-function makeDockerfile({ shell, vmImage, vmImageName, wsShellImage }) {
+function makeDockerfile({ shell, tools, vmImage, vmImageName, wsShellImage }) {
   const shellInstall = makeShellInstall({ shell, vmImageName });
+  const ohMyZshInstall =
+    path.basename(shell) === "zsh"
+      ? `RUN RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended`
+      : "";
+  const toolInstall = makeToolInstall({ tools, vmImageName });
+  const shellSetup = [shellInstall, ohMyZshInstall, toolInstall]
+    .filter(Boolean)
+    .join("\n");
   return `ARG WS_SHELL_IMAGE=${wsShellImage}
 ARG VM_IMAGE=${vmImage}
 
 FROM \${WS_SHELL_IMAGE} AS ws-shell
 FROM \${VM_IMAGE} AS vm
-${shellInstall ? `\n${shellInstall}\n` : ""}
+${shellSetup ? `\n${shellSetup}\n` : ""}
 # wsterm already embeds the web UI; runtime config comes from environment variables.
 COPY --from=ws-shell /app/bin/wsterm /app/bin/wsterm
 
@@ -371,25 +389,64 @@ CMD ["/app/bin/wsterm","-bind",":80","-fork","${shell}"]
 `;
 }
 
+function makeToolInstall({ tools, vmImageName }) {
+  const selected = new Set(parseTools(tools));
+  if (selected.has("codex") || selected.has("claude-code"))
+    selected.add("nodejs");
+  if (!selected.size) return "";
+
+  const packages = [];
+  if (selected.has("nodejs")) packages.push("nodejs", "npm");
+  const npmPackages = [];
+  if (selected.has("codex")) npmPackages.push("@openai/codex");
+  if (selected.has("claude-code")) npmPackages.push("@anthropic-ai/claude-code");
+
+  const installNode =
+    packages.length && vmImageName === "alpine"
+      ? `RUN apk add --no-cache ${packages.join(" ")}`
+      : packages.length && (vmImageName === "ubuntu" || vmImageName === "debian")
+        ? `RUN apt-get update \\
+    && apt-get install -y --no-install-recommends ${packages.join(" ")} \\
+    && rm -rf /var/lib/apt/lists/*`
+        : packages.length
+          ? `RUN if command -v apk >/dev/null 2>&1; then \\
+      apk add --no-cache ${packages.join(" ")}; \\
+    elif command -v apt-get >/dev/null 2>&1; then \\
+      apt-get update \\
+      && apt-get install -y --no-install-recommends ${packages.join(" ")} \\
+      && rm -rf /var/lib/apt/lists/*; \\
+    else \\
+      echo "Cannot install nodejs/npm: unsupported VM image package manager" >&2; \\
+      exit 1; \\
+    fi`
+          : "";
+
+  const installCli = npmPackages.length
+    ? `RUN npm install -g ${npmPackages.join(" ")}`
+    : "";
+  return [installNode, installCli].filter(Boolean).join("\n");
+}
+
 function makeShellInstall({ shell, vmImageName }) {
   const packageName = path.basename(shell);
   if (packageName === "sh") return "";
+  const packages = packageName === "zsh" ? "zsh curl git" : packageName;
 
   if (vmImageName === "alpine")
-    return `RUN apk add --no-cache ${packageName}`;
+    return `RUN apk add --no-cache ${packages}`;
 
   if (vmImageName === "ubuntu" || vmImageName === "debian")
     return `RUN apt-get update \\
-    && apt-get install -y --no-install-recommends ${packageName} \\
+    && apt-get install -y --no-install-recommends ${packages} \\
     && rm -rf /var/lib/apt/lists/*`;
 
   return `RUN if command -v ${shell} >/dev/null 2>&1; then \\
       true; \\
     elif command -v apk >/dev/null 2>&1; then \\
-      apk add --no-cache ${packageName}; \\
+      apk add --no-cache ${packages}; \\
     elif command -v apt-get >/dev/null 2>&1; then \\
       apt-get update \\
-      && apt-get install -y --no-install-recommends ${packageName} \\
+      && apt-get install -y --no-install-recommends ${packages} \\
       && rm -rf /var/lib/apt/lists/*; \\
     else \\
       echo "Cannot install ${packageName}: unsupported VM image package manager" >&2; \\
@@ -530,6 +587,39 @@ async function chooseShell(fallback) {
   if (shells.includes(answer)) return answer;
   if (/^[1-3]$/.test(answer)) return shells[Number(answer) - 1];
   return answer;
+}
+
+async function chooseTools(fallback) {
+  if (args.tools !== undefined) return parseTools(args.tools).join(",");
+  if (!input.isTTY) return parseTools(fallback).join(",");
+
+  const names = Object.keys(toolChoices);
+  printChoices(
+    "Preinstall tools",
+    names.map((name, index) => [
+      String(index + 1),
+      name,
+      toolChoices[name],
+    ]).concat([["0", "none", "default"]]),
+  );
+
+  const answer = await askText("Tools (comma separated)", fallback || "none");
+  return parseTools(answer || fallback).join(",");
+}
+
+function parseTools(value) {
+  const names = Object.keys(toolChoices);
+  const selected = String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .flatMap((item) => {
+      if (item === "0" || item === "none") return [];
+      if (/^[1-3]$/.test(item)) return [names[Number(item) - 1]];
+      return [item];
+    })
+    .filter((item) => names.includes(item));
+  return [...new Set(selected)];
 }
 
 async function readDefaults(file) {
@@ -792,6 +882,7 @@ Options:
   --scope SLUG         Optional Vercel team/user scope slug
   --from IMAGE         Source image for /app/bin/wsterm
   --shell PATH         /bin/bash, /bin/zsh, or /bin/sh
+  --tools LIST         nodejs,codex,claude-code
   --auth-mode MODE     basic, github, both, or none
   --auth-user VALUE    Username/password auth user
   --auth-password VAL  Username/password auth password
