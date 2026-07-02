@@ -113,7 +113,12 @@ async function main() {
     ".generated",
     project,
   );
-  const dockerfile = makeDockerfile({ shell, vmImage, wsShellImage });
+  const dockerfile = makeDockerfile({
+    shell,
+    vmImage,
+    vmImageName,
+    wsShellImage,
+  });
 
   await rm(appDir, { recursive: true, force: true });
   await mkdir(appDir, { recursive: true });
@@ -348,13 +353,14 @@ async function doctor() {
   );
 }
 
-function makeDockerfile({ shell, vmImage, wsShellImage }) {
+function makeDockerfile({ shell, vmImage, vmImageName, wsShellImage }) {
+  const shellInstall = makeShellInstall({ shell, vmImageName });
   return `ARG WS_SHELL_IMAGE=${wsShellImage}
 ARG VM_IMAGE=${vmImage}
 
 FROM \${WS_SHELL_IMAGE} AS ws-shell
 FROM \${VM_IMAGE} AS vm
-
+${shellInstall ? `\n${shellInstall}\n` : ""}
 # wsterm already embeds the web UI; runtime config comes from environment variables.
 COPY --from=ws-shell /app/bin/wsterm /app/bin/wsterm
 
@@ -363,6 +369,32 @@ ENV ENABLE_SSL=false
 EXPOSE 80
 CMD ["/app/bin/wsterm","-bind",":80","-fork","${shell}"]
 `;
+}
+
+function makeShellInstall({ shell, vmImageName }) {
+  const packageName = path.basename(shell);
+  if (packageName === "sh") return "";
+
+  if (vmImageName === "alpine")
+    return `RUN apk add --no-cache ${packageName}`;
+
+  if (vmImageName === "ubuntu" || vmImageName === "debian")
+    return `RUN apt-get update \\
+    && apt-get install -y --no-install-recommends ${packageName} \\
+    && rm -rf /var/lib/apt/lists/*`;
+
+  return `RUN if command -v ${shell} >/dev/null 2>&1; then \\
+      true; \\
+    elif command -v apk >/dev/null 2>&1; then \\
+      apk add --no-cache ${packageName}; \\
+    elif command -v apt-get >/dev/null 2>&1; then \\
+      apt-get update \\
+      && apt-get install -y --no-install-recommends ${packageName} \\
+      && rm -rf /var/lib/apt/lists/*; \\
+    else \\
+      echo "Cannot install ${packageName}: unsupported VM image package manager" >&2; \\
+      exit 1; \\
+    fi`;
 }
 
 async function value(name, question, fallback) {

@@ -63,6 +63,8 @@ Shell options:
 - `/bin/zsh`
 - `/bin/sh`
 
+Choosing bash or zsh adds the matching package to the generated Dockerfile when the VM image does not already include it.
+
 Custom VM image:
 
 ```bash

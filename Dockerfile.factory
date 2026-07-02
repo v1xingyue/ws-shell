@@ -1,4 +1,4 @@
-ARG WS_SHELL_IMAGE=ghcr.io/v1xingyue/ws-shell:v1.1.alpine
+ARG WS_SHELL_IMAGE=ghcr.io/v1xingyue/ws-shell:v1.8.alpine
 ARG BASE_IMAGE=alpine:3.23
 
 FROM ${WS_SHELL_IMAGE} AS ws-shell
