@@ -9,6 +9,7 @@ import * as p from "@clack/prompts";
 import {
   codeDefaults,
   defaultWsShellImage,
+  projectNameSuffixes,
   shells,
   toolChoices,
   vmImages,
@@ -79,7 +80,7 @@ async function main() {
   const project = await value(
     "project",
     "Vercel project name",
-    defaults.project ?? `ws-shell-${vmImageName}`,
+    defaultProjectName(vmImageName, defaults.project),
   );
   const wsShellImage =
     args.from ??
@@ -138,7 +139,7 @@ async function main() {
   if (usesGitHubAuth(authMode)) printOAuthGuide(oauthRedirectUrl);
 
   const authUsername = usesBasicAuth(authMode)
-    ? await secret(
+    ? await value(
         "auth-user",
         "Basic auth username",
         process.env.AUTH_USERNAME ?? defaults["auth-user"],
@@ -340,10 +341,7 @@ async function doctor() {
   printKeyValue("shell", defaults.shell || "/bin/sh");
   printKeyValue("tools", defaults.tools || "none");
   printKeyValue("auth mode", defaults["auth-mode"] || "not set");
-  printKeyValue(
-    "auth user",
-    defaults["auth-user"] ? mask(defaults["auth-user"]) : "not set",
-  );
+  printKeyValue("auth user", defaults["auth-user"] || "not set");
   printKeyValue(
     "auth password",
     defaults["auth-password"] ? mask(defaults["auth-password"]) : "not set",
@@ -529,6 +527,23 @@ function usesBasicAuth(mode) {
 
 function usesGitHubAuth(mode) {
   return mode === "github" || mode === "both";
+}
+
+function defaultProjectName(vmImageName, savedProject) {
+  if (savedProject && !["undefined", "null"].includes(String(savedProject)))
+    return savedProject;
+  const suffix =
+    projectNameSuffixes[
+      Math.abs(hashText(vmImageName)) % projectNameSuffixes.length
+    ];
+  return `${vmImageName}-${suffix}`;
+}
+
+function hashText(text) {
+  return [...String(text)].reduce(
+    (hash, char) => (hash * 31 + char.charCodeAt(0)) | 0,
+    0,
+  );
 }
 
 async function chooseVmImage(fallback) {
@@ -719,7 +734,9 @@ function cleanDefaults(data) {
   delete migrated["custom-base"];
 
   const clean = Object.fromEntries(
-    Object.entries(migrated).filter(([, value]) => value),
+    Object.entries(migrated).filter(
+      ([, value]) => value && !["undefined", "null"].includes(String(value)),
+    ),
   );
   return Object.fromEntries(
     Object.entries(clean).sort(([a], [b]) => a.localeCompare(b)),
@@ -906,26 +923,25 @@ function printKeyValue(key, value) {
 }
 
 async function askText(question, fallback = "") {
-  return String(
-    await promptResult(
-      p.text({
-        message: question,
-        placeholder: fallback || undefined,
-      }),
-    ),
-  ).trim();
+  const answer = await promptResult(
+    p.text({
+      message: question,
+      initialValue: fallback || undefined,
+      placeholder: fallback || undefined,
+    }),
+  );
+  return answer === undefined ? "" : String(answer).trim();
 }
 
 async function askSecret(question, fallback = "") {
-  return String(
-    await promptResult(
-      p.password({
-        message: question,
-        mask: "*",
-        placeholder: fallback || undefined,
-      }),
-    ),
-  ).trim();
+  const answer = await promptResult(
+    p.password({
+      message: question,
+      mask: "*",
+      placeholder: fallback || undefined,
+    }),
+  );
+  return answer === undefined ? "" : String(answer).trim();
 }
 
 async function promptResult(resultPromise) {

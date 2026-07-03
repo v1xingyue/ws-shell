@@ -14,6 +14,17 @@ export const toolChoices = {
   "claude-code": "Claude Code",
 };
 
+export const projectNameSuffixes = [
+  "juddy",
+  "nova",
+  "orbit",
+  "pixel",
+  "spark",
+  "ripple",
+  "atlas",
+  "echo",
+];
+
 export const codeDefaults = {
   "vm-image": "alpine",
   from: defaultWsShellImage,
