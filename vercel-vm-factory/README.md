@@ -29,7 +29,7 @@ Run without flags for prompts:
 npx vercel-vm-factory create
 ```
 
-The prompt walks through VM image, project, shell, optional preinstalled tools, and authentication. For list prompts, enter either names or numbers; tool choices can be comma-separated, for example `1,3` or `nodejs,claude-code`.
+The prompt walks through VM image, Vercel team, project, shell, optional preinstalled tools, and authentication. Teams are loaded from `vercel teams list --format json`; choose `Default` to use the current Vercel CLI scope. For list prompts, enter either names or numbers; tool choices can be comma-separated, for example `1,3` or `nodejs,claude-code`.
 
 Check local setup:
 
@@ -47,7 +47,7 @@ Common flags:
 - `--shell /bin/bash|/bin/zsh|/bin/sh`
 - `--tools nodejs,codex,claude-code`
 - `--project NAME`
-- `--scope TEAM_SLUG`
+- `--scope TEAM_SLUG` to skip team selection
 - `--auth-mode basic|github|both|none`
 - `--dry-run`
 
@@ -57,7 +57,7 @@ The generated project contains only `Dockerfile.vercel`.
 
 CLI mapping:
 
-- Vercel Team -> `--scope TEAM_SLUG` when needed; omit it to use the CLI default scope
+- Vercel Team -> loaded from `vercel teams list --format json`; `--scope TEAM_SLUG` skips the selector
 - Project Name -> `--project x-shell`
 - Application Preset -> patched through Vercel API as `framework=container`
 - Root Directory -> generated project directory
@@ -78,7 +78,7 @@ Choosing bash or zsh adds the matching package to the generated Dockerfile when 
 
 Generated shell setup examples:
 
-- Alpine + `/bin/zsh`: installs `zsh curl git`, installs oh-my-zsh unattended, and writes `/root/.zshrc`.
+- Alpine + `/bin/zsh`: installs `zsh curl git`, clones oh-my-zsh into `/root/.oh-my-zsh`, and writes `/root/.zshrc`.
 - Ubuntu/Debian + `/bin/bash`: installs `bash` with `apt-get`.
 - `/bin/sh`: no extra shell package is installed.
 

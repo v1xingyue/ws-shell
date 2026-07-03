@@ -4,33 +4,23 @@ import { spawn } from "node:child_process";
 import { stdin as input, stdout as output } from "node:process";
 import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import * as p from "@clack/prompts";
-
-const defaultWsShellImage = "ghcr.io/v1xingyue/ws-shell:v1.8.alpine";
-
-const vmImages = {
-  alpine: "alpine:3.23",
-  ubuntu: "ubuntu:24.04",
-  debian: "debian:13-slim",
-};
-const shells = ["/bin/bash", "/bin/zsh", "/bin/sh"];
-const toolChoices = {
-  nodejs: "Node.js + npm",
-  codex: "OpenAI Codex CLI",
-  "claude-code": "Claude Code",
-};
+import {
+  codeDefaults,
+  defaultWsShellImage,
+  shells,
+  toolChoices,
+  vmImages,
+} from "./config.mjs";
 
 const { command, args } = parseCommand(process.argv.slice(2));
-const scriptRoot = path.resolve(import.meta.dirname);
+const scriptFile = fileURLToPath(import.meta.url);
+const scriptRoot = path.dirname(scriptFile);
 const workspaceRoot = process.cwd();
 const stateRoot = path.join(homedir(), ".vercel-vm-factory");
 const defaultsPath = path.join(stateRoot, "defaults.json");
 const legacyDefaultsPath = path.join(scriptRoot, ".defaults.json");
-const codeDefaults = {
-  "vm-image": "alpine",
-  from: defaultWsShellImage,
-  shell: "/bin/sh",
-};
 const packagedDefaults = {
   ...(await readDefaults(legacyDefaultsPath)),
   ...codeDefaults,
@@ -85,11 +75,7 @@ async function main() {
     args["vm-image"] ?? args.base ?? defaults["vm-image"] ?? "alpine",
   );
   const vmImage = vmImages[vmImageName] ?? vmImageName;
-  const scope = await optionalValue(
-    "scope",
-    "Vercel team/scope",
-    defaults.scope,
-  );
+  const scope = await chooseVercelScope(defaults.scope);
   const project = await value(
     "project",
     "Vercel project name",
@@ -380,7 +366,7 @@ function makeDockerfile({ shell, tools, vmImage, vmImageName, wsShellImage }) {
   const shellInstall = makeShellInstall({ shell, vmImageName });
   const ohMyZshInstall =
     path.basename(shell) === "zsh"
-      ? `RUN RUNZSH=no CHSH=no KEEP_ZSHRC=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \\
+      ? `RUN git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git /root/.oh-my-zsh \\
     && printf '%s\\n' \\
       'export ZSH="$HOME/.oh-my-zsh"' \\
       'ZSH_THEME="robbyrussell"' \\
@@ -397,14 +383,14 @@ ARG VM_IMAGE=${vmImage}
 
 FROM \${WS_SHELL_IMAGE} AS ws-shell
 FROM \${VM_IMAGE} AS vm
+ENV HOME=/root
+ENV SHELL=${shell}
 ${shellSetup ? `\n${shellSetup}\n` : ""}
 # wsterm already embeds the web UI; runtime config comes from environment variables.
 COPY --from=ws-shell /app/bin/wsterm /app/bin/wsterm
 
 WORKDIR /app
 ENV ENABLE_SSL=false
-ENV HOME=/root
-ENV SHELL=${shell}
 EXPOSE 80
 CMD ["/app/bin/wsterm","-bind",":80","-fork","${shell}"]
 `;
@@ -491,17 +477,6 @@ async function secret(name, question, fallback) {
   const placeholder = fallback ? mask(fallback) : "skip";
   const answer = await askSecret(question, placeholder);
   return answer || fallback || "";
-}
-
-async function optionalValue(name, question, fallback) {
-  if (args[name] !== undefined) return args[name];
-  if (!input.isTTY) return "";
-
-  const answer = await askText(
-    question,
-    fallback ? `${fallback}; Enter to skip` : "skip",
-  );
-  return answer;
 }
 
 function defaultAuthMode() {
@@ -621,6 +596,62 @@ async function chooseTools(fallback) {
   return selected.join(",");
 }
 
+async function chooseVercelScope(fallback) {
+  if (args.scope !== undefined) return args.scope;
+  if (!input.isTTY) return fallback || "";
+
+  const teams = await getVercelTeams();
+  const options = [
+    { value: "", label: "Default", hint: "current Vercel CLI scope" },
+    ...teams.map((team) => ({
+      value: team.slug,
+      label: team.name || team.slug,
+      hint: team.slug,
+    })),
+  ];
+
+  return promptResult(
+    p.select({
+      message: "Vercel team",
+      initialValue: teams.some((team) => team.slug === fallback)
+        ? fallback
+        : "",
+      options,
+    }),
+  );
+}
+
+async function getVercelTeams() {
+  try {
+    const commandArgs = ["teams", "list", "--format", "json"];
+    if (args.token) commandArgs.push("--token", args.token);
+    const text = await runCapture("vercel", commandArgs);
+    return extractVercelTeams(text);
+  } catch {
+    warn("could not load Vercel teams; using default scope");
+    return [];
+  }
+}
+
+function extractVercelTeams(text) {
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  if (start === -1 || end === -1 || end < start) return [];
+
+  try {
+    const data = JSON.parse(text.slice(start, end + 1));
+    const teams = Array.isArray(data) ? data : data.teams || [];
+    return teams
+      .map((team) => ({
+        name: team.name || team.slug || "",
+        slug: team.slug || "",
+      }))
+      .filter((team) => team.slug);
+  } catch {
+    return [];
+  }
+}
+
 function parseTools(value) {
   const names = Object.keys(toolChoices);
   const selected = String(value || "")
@@ -647,7 +678,7 @@ async function readDefaults(file) {
 async function syncDefaults() {
   const current = await readDefaults(defaultsPath);
   const codeMtime = Math.max(
-    await readMtime(import.meta.filename),
+    await readMtime(scriptFile),
     await readMtime(legacyDefaultsPath),
   );
   const homeMtime = await readMtime(defaultsPath);
@@ -934,7 +965,7 @@ Options:
   --vm-image NAME      alpine, ubuntu, debian, or a custom VM image
   --base NAME          Alias for --vm-image
   --project NAME       Vercel project name
-  --scope SLUG         Optional Vercel team/user scope slug
+  --scope SLUG         Vercel team/user scope slug; skips team selector
   --from IMAGE         Source image for /app/bin/wsterm
   --shell PATH         /bin/bash, /bin/zsh, or /bin/sh
   --tools LIST         nodejs,codex,claude-code
