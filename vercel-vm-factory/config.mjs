@@ -1,9 +1,9 @@
 export const defaultWsShellImage = "ghcr.io/v1xingyue/ws-shell:v1.8.alpine";
 
 export const vmImages = {
-  alpine: "alpine:3.23",
-  ubuntu: "ubuntu:24.04",
-  debian: "debian:13-slim",
+  alpine: "alpine:3.23.5",
+  ubuntu: "ubuntu:26.10",
+  debian: "debian:13.5",
 };
 
 export const shells = ["/bin/bash", "/bin/zsh", "/bin/sh"];

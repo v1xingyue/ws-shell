@@ -49,11 +49,15 @@ Common flags:
 - `--project NAME`
 - `--scope TEAM_SLUG` to skip team selection
 - `--auth-mode basic|github|both|none`
+- `--background-server-url URL`
+- `--mcp-token TOKEN`
 - `--dry-run`
 
 Entered auth values are reused from `~/.vercel-vm-factory/defaults.json`; press Enter to keep the placeholder value or skip an empty one.
 
 The generated project contains only `Dockerfile.vercel`.
+
+`--background-server-url` sets `BACKGROUND_SERVER_URL`, the proxied real web app target. `--mcp-token` sets `MCP_TOKEN`; MCP clients can use `Authorization: Bearer TOKEN` or `/console/vm/mcp?token=TOKEN`.
 
 CLI mapping:
 
@@ -78,7 +82,7 @@ Choosing bash or zsh adds the matching package to the generated Dockerfile when 
 
 Generated shell setup examples:
 
-- Alpine + `/bin/zsh`: installs `zsh curl git`, clones oh-my-zsh into `/root/.oh-my-zsh`, and writes `/root/.zshrc`.
+- Alpine + `/bin/zsh`: installs `zsh curl git ca-certificates`, clones oh-my-zsh into `/root/.oh-my-zsh`, and writes `/root/.zshrc`.
 - Ubuntu/Debian + `/bin/bash`: installs `bash` with `apt-get`.
 - `/bin/sh`: no extra shell package is installed.
 

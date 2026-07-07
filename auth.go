@@ -286,7 +286,7 @@ func handleGitHubCallback(c *gin.Context) {
 	logrus.Infof("User %s (ID: %d) logged in successfully", githubUser.Login, githubUser.ID)
 
 	// 重定向到前端页面
-	c.Redirect(http.StatusFound, "/web")
+	c.Redirect(http.StatusFound, "/console")
 }
 
 // 检查用户是否在允许列表中（仅按 GitHub 用户 ID）
@@ -395,7 +395,7 @@ func authMethods() []string {
 func handleLogout(c *gin.Context) {
 	if !authEnabled {
 		// 当认证未启用时，直接重定向到首页
-		c.Redirect(http.StatusFound, "/web")
+		c.Redirect(http.StatusFound, "/console")
 		return
 	}
 
@@ -405,7 +405,7 @@ func handleLogout(c *gin.Context) {
 	logrus.Info("User logged out")
 
 	// 重定向到登录页面或首页
-	c.Redirect(http.StatusFound, "/web")
+	c.Redirect(http.StatusFound, "/console")
 }
 
 // 获取当前用户信息

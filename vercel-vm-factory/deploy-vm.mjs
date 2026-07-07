@@ -92,6 +92,13 @@ async function main() {
   const prod = args.prod !== "false";
   const dryRun = Boolean(args["dry-run"]);
   const skipLink = Boolean(args["skip-link"]);
+  const backgroundServerUrl =
+    args["background-server-url"] ??
+    process.env.BACKGROUND_SERVER_URL ??
+    defaults["background-server-url"] ??
+    "";
+  const mcpToken =
+    args["mcp-token"] ?? process.env.MCP_TOKEN ?? defaults["mcp-token"] ?? "";
   const authMode = await chooseAuthMode(defaultAuthMode());
 
   const oauthRedirectUrl =
@@ -126,6 +133,8 @@ async function main() {
     shell,
     tools: tools || "none",
     auth: authMode,
+    ...(backgroundServerUrl ? { "background server": backgroundServerUrl } : {}),
+    ...(mcpToken ? { "mcp token": mask(mcpToken) } : {}),
     ...(usesGitHubAuth(authMode) ? { callback: oauthRedirectUrl } : {}),
     dockerfile: path.join(appDir, "Dockerfile.vercel"),
     target: prod ? "production" : "preview",
@@ -211,6 +220,9 @@ async function main() {
     vercelArgs.push("--env", `GITHUB_CLIENT_SECRET=${githubClientSecret}`);
   if (allowedUserIds)
     vercelArgs.push("--env", `ALLOWED_USER_IDS=${allowedUserIds}`);
+  if (backgroundServerUrl)
+    vercelArgs.push("--env", `BACKGROUND_SERVER_URL=${backgroundServerUrl}`);
+  if (mcpToken) vercelArgs.push("--env", `MCP_TOKEN=${mcpToken}`);
   if (prod) vercelArgs.push("--prod");
 
   step("Deploying");
@@ -228,9 +240,11 @@ async function main() {
     "auth-mode": authMode,
     "auth-user": authUsername,
     "auth-password": authPassword,
+    "background-server-url": backgroundServerUrl,
     "client-id": githubClientId,
     "client-secret": githubClientSecret,
     "github-userid": allowedUserIds,
+    "mcp-token": mcpToken,
   });
   console.log(
     `\n${color.green("Deployment URL:")} ${color.bold(deploymentUrl)}`,
@@ -347,6 +361,14 @@ async function doctor() {
     defaults["auth-password"] ? mask(defaults["auth-password"]) : "not set",
   );
   printKeyValue(
+    "background url",
+    defaults["background-server-url"] || "not set",
+  );
+  printKeyValue(
+    "mcp token",
+    defaults["mcp-token"] ? mask(defaults["mcp-token"]) : "not set",
+  );
+  printKeyValue(
     "client id",
     defaults["client-id"] ? mask(defaults["client-id"]) : "not set",
   );
@@ -435,7 +457,8 @@ function makeToolInstall({ tools, vmImageName }) {
 function makeShellInstall({ shell, vmImageName }) {
   const packageName = path.basename(shell);
   if (packageName === "sh") return "";
-  const packages = packageName === "zsh" ? "zsh curl git" : packageName;
+  const packages =
+    packageName === "zsh" ? "zsh curl git ca-certificates" : packageName;
 
   if (vmImageName === "alpine")
     return `RUN apk add --no-cache ${packages}`;
@@ -988,6 +1011,9 @@ Options:
   --auth-mode MODE     basic, github, both, or none
   --auth-user VALUE    Username/password auth user
   --auth-password VAL  Username/password auth password
+  --background-server-url URL
+                       Proxied web app target; sets BACKGROUND_SERVER_URL
+  --mcp-token VALUE    MCP bearer/query token; sets MCP_TOKEN
   --client-id VALUE    GitHub OAuth client id
   --client-secret VAL  GitHub OAuth client secret
   --github-userid VAL  Allowed GitHub numeric user id(s)

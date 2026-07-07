@@ -9,7 +9,7 @@ WebSocket-based web terminal with optional username/password or GitHub OAuth aut
 ## Features
 
 - Run a real interactive shell in the browser through WebSocket + PTY.
-- Open the terminal at `/web`; the root path redirects there.
+- Open the terminal at `/console`; every other path proxies to `BACKGROUND_SERVER_URL`, defaulting to `http://localhost:3000`.
 - Send keyboard input, receive terminal output, and resize the PTY from the browser.
 - Choose the shell command with `-fork`, for example `/bin/bash`, `/bin/zsh`, or `/bin/sh`.
 - Run in single-user mode by default, or switch users with `?user=username` when multi-user mode is enabled.
@@ -29,7 +29,7 @@ The deploy button points Vercel at this repository. `Dockerfile.vercel` builds t
 
 That gives you:
 
-- A browser terminal at `https://YOUR_DEPLOYMENT/web`.
+- A browser terminal at `https://YOUR_DEPLOYMENT/console`.
 - WebSocket terminal sessions backed by `/bin/sh` inside the deployed Alpine container.
 - HTTPS at the public URL, with app-level SSL disabled because the platform terminates TLS.
 - Optional username/password or GitHub OAuth protection through Vercel environment variables:
@@ -63,7 +63,7 @@ go build
 ./wsterm
 ```
 
-The server listens on `:8080` by default. Open `http://SERVER_IP:8080/web`.
+The server listens on `:8080` by default. Open `http://SERVER_IP:8080/console`.
 
 ### 2. Enable HTTPS
 
@@ -170,7 +170,7 @@ Configuration methods:
 ### Callback URL
 
 - The program builds the callback URL from the current request host by default.
-- The **Authorization callback URL** in GitHub must match the real access URL. For example, if you open `http://192.168.3.51:8080/web`, use `http://192.168.3.51:8080/auth/github/callback`.
+- The **Authorization callback URL** in GitHub must match the real access URL. For example, if you open `http://192.168.3.51:8080/console`, use `http://192.168.3.51:8080/auth/github/callback`.
 - Set `OAUTH_REDIRECT_URL` only when a reverse proxy or similar setup makes the request host differ from the public URL.
 - For local debugging with the fixed production OAuth callback, set `OAUTH_LOCAL_DEV=true`; the public callback redirects the one-time GitHub code back to `OAUTH_LOCAL_CALLBACK_URL`.
 
@@ -197,7 +197,7 @@ Examples: `ALLOWED_USER_IDS=974169` or `ALLOWED_USER_IDS=12345,67890`.
 3. Use username/password, or click "Sign in with GitHub" when GitHub auth is configured.
 4. If allowed, a signed cookie is written and the terminal becomes available.
 
-If no authentication environment variables are set, the app runs without authentication and `/web` is directly accessible.
+If no authentication environment variables are set, the app runs without authentication and `/console` is directly accessible.
 
 ## API
 
@@ -206,12 +206,16 @@ If no authentication environment variables are set, the app runs without authent
 - `GET /auth/github/callback` - OAuth callback
 - `GET /auth/logout` - log out
 - `GET /auth/me` - current user info
+- `POST /console/:name/mcp` - minimal MCP Streamable HTTP endpoint with the `shell` tool
+
+Set `BACKGROUND_SERVER_URL` to change the proxied web app target.
+Set `MCP_TOKEN` to enable MCP; clients can use `Authorization: Bearer TOKEN` or `/console/vm/mcp?token=TOKEN`.
 
 ## Troubleshooting
 
 **"GitHub auth not configured"**
 
-`GITHUB_CLIENT_ID` or `GITHUB_CLIENT_SECRET` is missing. If authentication is not needed, open `/web` directly.
+`GITHUB_CLIENT_ID` or `GITHUB_CLIENT_SECRET` is missing. If authentication is not needed, open `/console` directly.
 
 **redirect_uri error or wrong redirect**
 
@@ -236,7 +240,7 @@ Use the published image:
 docker run -d --name ws-shell -p 8090:8080 ghcr.io/v1xingyue/ws-shell:main
 ```
 
-Open `http://0.0.0.0:8090/web`. Pass environment variables to enable authentication:
+Open `http://0.0.0.0:8090/console`. Pass environment variables to enable authentication:
 
 ```bash
 docker run -d --name ws-shell \

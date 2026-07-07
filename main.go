@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/creack/pty"
@@ -244,22 +245,19 @@ func main() {
 	}
 
 	Setup(r)
-
-	// 重定向根路径到 /web
-	r.GET("/", func(c *gin.Context) {
-		c.Redirect(http.StatusMovedPermanently, "/web")
-	})
+	setupMCPRoutes(r)
+	setupWebProxy(r)
 
 	logrus.Info("Server started on port ", bindAddress)
 
 	defaultHost := getDefaultIP()
-	var visitUrl string
+	var baseURL string
 	if enableSSL {
-		visitUrl = "https://" + defaultHost + bindAddress + "/web"
+		baseURL = "https://" + defaultHost + bindAddress
 	} else {
-		visitUrl = "http://" + defaultHost + bindAddress + "/web"
+		baseURL = "http://" + defaultHost + bindAddress
 	}
-	logrus.Infof("You may visit %s to use the terminal", visitUrl)
+	printStartupGuide(baseURL)
 
 	var err error
 
@@ -271,5 +269,20 @@ func main() {
 
 	if err != nil {
 		logrus.Fatalf("Failed to start server: %v", err)
+	}
+}
+
+func printStartupGuide(baseURL string) {
+	logrus.Infof("Console: %s/console", baseURL)
+	logrus.Infof("Web app proxy: %s -> %s", baseURL+"/", webProxyTarget)
+	logrus.Infof("Configure web app proxy with BACKGROUND_SERVER_URL, default %s", "http://localhost:3000")
+	logrus.Infof("Terminal WebSocket: %s/ws", baseURL)
+
+	logrus.Infof("MCP endpoint: %s/console/vm/mcp", baseURL)
+	if strings.TrimSpace(os.Getenv("MCP_TOKEN")) != "" {
+		logrus.Info("MCP auth: use Authorization: Bearer <MCP_TOKEN> or append ?token=<MCP_TOKEN>")
+		logrus.Info("MCP tool: shell(command, cwd?, timeout_ms?)")
+	} else {
+		logrus.Info("MCP disabled: MCP_TOKEN is empty")
 	}
 }
