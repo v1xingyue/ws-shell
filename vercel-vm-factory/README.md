@@ -50,7 +50,7 @@ Common flags:
 - `--scope TEAM_SLUG` to skip team selection
 - `--auth-mode basic|github|both|none`
 - `--background-server-url URL`
-- `--mcp-token TOKEN`
+- `--mcp-token TOKEN|random`
 - `--dry-run`
 
 Entered auth values are reused from `~/.vercel-vm-factory/defaults.json`; press Enter to keep the placeholder value or skip an empty one.
@@ -58,6 +58,8 @@ Entered auth values are reused from `~/.vercel-vm-factory/defaults.json`; press 
 The generated project contains only `Dockerfile.vercel`.
 
 `--background-server-url` sets `BACKGROUND_SERVER_URL`, the proxied real web app target. `--mcp-token` sets `MCP_TOKEN`; MCP clients can use `Authorization: Bearer TOKEN` or `/console/vm/mcp?token=TOKEN`.
+
+Use `--mcp-token random` to generate a 24-byte URL-safe token. `generate` and `auto` are accepted aliases. The CLI prints the generated token and the full `/console/vm/mcp?token=...` URL after deploy.
 
 CLI mapping:
 

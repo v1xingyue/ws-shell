@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { stdin as input, stdout as output } from "node:process";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -97,8 +98,10 @@ async function main() {
     process.env.BACKGROUND_SERVER_URL ??
     defaults["background-server-url"] ??
     "";
-  const mcpToken =
+  const mcpTokenInput =
     args["mcp-token"] ?? process.env.MCP_TOKEN ?? defaults["mcp-token"] ?? "";
+  const { token: mcpToken, generated: generatedMcpToken } =
+    resolveMcpToken(mcpTokenInput);
   const authMode = await chooseAuthMode(defaultAuthMode());
 
   const oauthRedirectUrl =
@@ -134,7 +137,13 @@ async function main() {
     tools: tools || "none",
     auth: authMode,
     ...(backgroundServerUrl ? { "background server": backgroundServerUrl } : {}),
-    ...(mcpToken ? { "mcp token": mask(mcpToken) } : {}),
+    ...(mcpToken
+      ? {
+          "mcp token": `${mask(mcpToken)}${
+            generatedMcpToken ? " (generated)" : ""
+          }`,
+        }
+      : {}),
     ...(usesGitHubAuth(authMode) ? { callback: oauthRedirectUrl } : {}),
     dockerfile: path.join(appDir, "Dockerfile.vercel"),
     target: prod ? "production" : "preview",
@@ -142,6 +151,7 @@ async function main() {
 
   if (dryRun) {
     ok("dry run: skipped vercel deploy");
+    if (generatedMcpToken) printGeneratedMcpToken("", mcpToken);
     return;
   }
 
@@ -249,6 +259,7 @@ async function main() {
   console.log(
     `\n${color.green("Deployment URL:")} ${color.bold(deploymentUrl)}`,
   );
+  if (generatedMcpToken) printGeneratedMcpToken(deploymentUrl, mcpToken);
 
   async function withScopeFallback(scopeValue, action) {
     try {
@@ -259,6 +270,24 @@ async function main() {
       activeScope = "";
       return action();
     }
+  }
+}
+
+function resolveMcpToken(value) {
+  const text = String(value || "").trim();
+  if (["random", "generate", "auto"].includes(text.toLowerCase())) {
+    return { token: randomBytes(24).toString("base64url"), generated: true };
+  }
+  return { token: text, generated: false };
+}
+
+function printGeneratedMcpToken(deploymentUrl, token) {
+  console.log(`${color.green("Generated MCP token:")} ${color.bold(token)}`);
+  if (deploymentUrl) {
+    const mcpUrl = `${deploymentUrl}/console/vm/mcp?token=${token}`;
+    console.log(
+      `${color.green("MCP URL:")} ${color.bold(mcpUrl)}`,
+    );
   }
 }
 
@@ -1013,7 +1042,7 @@ Options:
   --auth-password VAL  Username/password auth password
   --background-server-url URL
                        Proxied web app target; sets BACKGROUND_SERVER_URL
-  --mcp-token VALUE    MCP bearer/query token; sets MCP_TOKEN
+  --mcp-token TOKEN    MCP token; use random/generate/auto to create one
   --client-id VALUE    GitHub OAuth client id
   --client-secret VAL  GitHub OAuth client secret
   --github-userid VAL  Allowed GitHub numeric user id(s)

@@ -10,9 +10,9 @@ COPY . /wsterm
 WORKDIR /wsterm
 COPY --from=page /web/dist /wsterm/web/dist
 RUN go mod tidy
-RUN make bin
+RUN make build
 
-RUN make red-pill-shell
+# RUN make red-pill-shell
 
 FROM alpine:3.23
 ARG TARGETARCH

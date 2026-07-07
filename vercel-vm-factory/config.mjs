@@ -1,4 +1,4 @@
-export const defaultWsShellImage = "ghcr.io/v1xingyue/ws-shell:v1.8.alpine";
+export const defaultWsShellImage = "ghcr.io/v1xingyue/ws-shell:v1.9.alpine";
 
 export const vmImages = {
   alpine: "alpine:3.23.5",
